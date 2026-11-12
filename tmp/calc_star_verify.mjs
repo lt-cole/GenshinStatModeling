@@ -1,7 +1,7 @@
-// 星系反应（星超导/星扩散）伤害公式验证：期望值从角色 JSON 实时计算，对照 gensri.wiki 口径
+// 星系反应（星超导/星扩散）+ 月曜直伤公式验证：期望值从角色 JSON 实时计算，对照 gensri.wiki 口径与游戏内实测
 import { chromium } from 'file:///C:/Users/Administrator/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/node_modules/playwright/index.mjs';
 import { readFileSync } from 'fs';
-const ch = (n) => JSON.parse(readFileSync(`F:/AskMetaFilterInCN/genshin/site/data/characters/${n}.json`, 'utf8'));
+const ch = (n) => JSON.parse(readFileSync(`F:/GenshinStatModeling/genshin/site/data/characters/${n}.json`, 'utf8'));
 
 const b = await chromium.launch({ executablePath: 'C:/Users/Administrator/AppData/Local/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe' });
 const pg = await b.newPage({ viewport: { width: 1400, height: 900 } });
@@ -36,6 +36,7 @@ const resMult = (resPct) => resPct >= 0 ? 1 - resPct / 100 : 1 - resPct / 200;
 const emZone = (em) => 1 + (6 * em) / (em + 2000);
 
 // ===== 1. 米提亚：递变聚爆星超导（EM=1000、天赋Lv10、敌90抗10%、暴击50/100 —— 用户反馈场景）=====
+// 2026-11-12 口径修订：星系行不含基础提升（星耀祝礼 14%），桑多涅/薇斯纳两次游戏内实测均在不乘 1.14 时闭合
 const mitya = ch('Mitya');
 await pg.goto('http://127.0.0.1:50055/detail.html?name=Mitya', { waitUntil: 'networkidle' });
 await pg.waitForTimeout(800);
@@ -44,7 +45,7 @@ await set('c_em', 1000); await set('c_tlv', 10); await set('c_res', 10);
 await set('c_cr', 50); await set('c_cd', 100); await set('c_records', 0);
 await pg.waitForTimeout(400);
 const mMult = mitya.talents.combat1.params.param10[9]; // 天赋Lv10
-const mBase = 1000 * mMult * 1.14;                     // EM×倍率×基础提升(0.028%×500 封顶14%)
+const mBase = 1000 * mMult;                            // EM×倍率（不含基础提升）
 const mZone = emZone(1000);                            // 月曜精通乘区 = 3.0
 let r = await row(0, '星超导');
 const w0 = mBase * 1 * mZone * resMult(10);
@@ -64,17 +65,17 @@ check(`米提亚 记录12 白字 ≈ ${w12.toFixed(1)}（封顶2.0）`, r && Mat
 let meta = await metaText();
 check('米提亚 公式说明为星系口径', meta.includes('星超导/星扩散直伤') && !meta.includes('增幅区 × 防御区'), meta.slice(0, 60));
 
-// ===== 2. 桑多涅：星超导吃系数、星扩散不吃；基础提升按攻击力封顶1.14 =====
+// ===== 2. 桑多涅：星超导吃系数、星扩散不吃；固有天赋「淑女的行事准则」精通加成（ATK 2000 拿满 160）自动计入 =====
 const sand = ch('Sandrone');
 await pg.goto('http://127.0.0.1:50055/detail.html?name=Sandrone', { waitUntil: 'networkidle' });
 await pg.waitForTimeout(800);
 await resetDefaults();
 await set('c_records', 0); await set('c_tlv', 10); await set('c_res', 10);
 await pg.waitForTimeout(400);
-const sZone = emZone(100); // 默认 EM 100
+const sZone = emZone(100 + 160); // 实际精通 = 面板 100 + 天赋 160（每 100 攻击力 +8，2000 拿满）
 const sMultSC = sand.talents.combat3.params.param3[9];
 const sMultSD = sand.talents.combat3.params.param6[9];
-const sBase = 2000 * 1.14; // ATK 2000 → 基础提升封顶
+const sBase = 2000; // ATK 2000（不含基础提升，实测口径）
 r = await row(2, '聚能光束星超导');
 const s0 = sBase * sMultSC * sZone * resMult(10);
 check(`桑多涅 星超导(记录0) ≈ ${s0.toFixed(1)}`, r && Math.abs(r.white - s0) < 3, r ? JSON.stringify(r) : '无行');
@@ -86,6 +87,40 @@ r = await row(2, '聚能光束星超导');
 check(`桑多涅 星超导(记录12) ≈ ${(s0 * 2).toFixed(1)}`, r && Math.abs(r.white - s0 * 2) < 6, r ? String(r.white) : '');
 r = await row(2, '聚能光束星扩散');
 check(`桑多涅 星扩散(记录12)不受系数影响 ≈ ${sx.toFixed(1)}`, r && Math.abs(r.white - sx) < 3, r ? String(r.white) : '');
+
+// ===== 2.1 实测复现：桑多涅留言板 id=28（ATK 3121.4 / 面板EM 18.6 / 爆伤186.8 / 记录1 / 天赋Lv10）
+// 游戏实测无暴击 9785 —— 含天赋精通 160（面板18.6+160=178.6）闭合，残差 0.3%（面板舍入级）
+await pg.goto('http://127.0.0.1:50055/detail.html?name=Sandrone', { waitUntil: 'networkidle' });
+await pg.waitForTimeout(800);
+await resetDefaults();
+await set('c_atk', 3121.4); await set('c_em', 18.6); await set('c_cd', 186.8);
+await set('c_records', 1); await set('c_cr', 100); await set('c_tlv', 10);
+await pg.waitForTimeout(400);
+const sandEm = 18.6 + Math.min((3121.4 / 100) * 8, 160); // 178.6
+const sandRepro = 3121.4 * 1.615 * 1.45 * emZone(sandEm) * resMult(10);
+r = await row(0, '冷凝射线星超导');
+check(`桑多涅 实测复现(留言#28) 白字 ≈ ${sandRepro.toFixed(0)}（游戏实测 9785，容差 0.4%）`,
+  r && Math.abs(r.white - 9785) < 40, r ? JSON.stringify(r) : '无行');
+
+// ===== 2.2 实测复现：兹白留言板 id=29（DEF 3320.47 / EM 119.6 / 爆伤212 / 敌110级 / 天赋Lv10 / C2）
+// 月曜直伤：防御×倍率段(基础+太阴降0.6+二命5.5)×基础提升1.14×月乘区1.62×月曜精通乘区×抗性，一命×3.2；不吃防御乘区
+await pg.goto('http://127.0.0.1:50055/detail.html?name=Zibai', { waitUntil: 'networkidle' });
+await pg.waitForTimeout(800);
+await resetDefaults();
+await set('c_atk', 1021.8); await set('c_def', 3320.4719); await set('c_em', 119.6);
+await set('c_cr', 100); await set('c_cd', 212); await set('c_charlv', 90); await set('c_enelev', 110);
+await set('c_res', 10); await set('c_tlv', 10);
+await pg.evaluate(() => { window.hoyoPanelForPage = { constellation: 2 }; }); // 注入 C2（模拟米游社面板缓存）
+await set('c_def', '3320.4719'); // 触发重算读取命座
+await pg.waitForTimeout(400);
+const zb = ch('Zibai');
+const zMult = zb.talents.combat2.params.param2[9] + 0.6 + 5.5; // 8.637424
+const zWhite = 3320.4719 * zMult * 1.14 * 1.62 * emZone(119.6) * resMult(10);
+r = await row(1, '灵驹飞踏第二段');
+check(`兹白 实测复现(留言#29, C2) 白字 ≈ ${zWhite.toFixed(0)}（游戏实测 63811）`,
+  r && Math.abs(r.white - 63811) < 30, r ? JSON.stringify(r) : '无行');
+check(`兹白 实测复现 暴击 ≈ ${(zWhite * 3.12).toFixed(0)}（游戏实测 199091）`,
+  r && Math.abs(r.crit - 199091) < 90, r ? String(r.crit) : '');
 
 // ===== 3. 薇斯纳：非伤害行（持续时间/冷却时间/元素能量）不再进计算表 =====
 await pg.goto('http://127.0.0.1:50055/detail.html?name=Vesna', { waitUntil: 'networkidle' });
@@ -169,7 +204,7 @@ r = await row(0, '一段');
 const pvWhite = 3000 * 0.8365 * (190 / 380) * resMult(10);
 check(`刷新后首算用恢复值 ≈ ${pvWhite.toFixed(1)}`, r && Math.abs(r.white - pvWhite) < 1, r ? JSON.stringify(r) : '无行');
 
-await pg.screenshot({ path: 'F:/AskMetaFilterInCN/tmp/t_star_calc.png' });
+await pg.screenshot({ path: 'F:/GenshinStatModeling/tmp/t_star_calc.png' });
 await b.close();
 console.log(`\n===== 星系反应公式验收：${pass} 通过 / ${fail} 失败 =====`);
 if (errors.length) { console.log('页面JS错误：', errors.join(' | ')); process.exit(1); }

@@ -247,25 +247,26 @@ function calcRow(basePanel, multPct, cfg, amplifyMult) {
 }
 
 // 星系反应直伤行（星超导/星扩散，如"递变聚爆星超导伤害|倍率元素精通"、"棱晶弹星超导伤害|倍率"）：
-// 强度研究院（gensri.wiki）实测口径：伤害 = 面板属性×倍率 × 反应系数 × 基础提升 × 精通乘区 × 暴击区 × 抗性区。
+// 强度研究院（gensri.wiki）口径：伤害 = 面板属性×倍率 × 反应系数 × 精通乘区 × 暴击区 × 抗性区。
 // · 倍率基数：标签带"元素精通"后缀用精通面板（米提亚），否则用攻击面板（七七/桑多涅/奥黛塔等，倍率数值已反推吻合）。
 // · 反应系数：由极星辉域记录次数决定——0 次=1.00、1 次=1.45、每多一次 +0.05、12 次封顶 2.00；星扩散恒为 1。
 // · 精通乘区沿用月曜公式：1 + 6×元素精通÷(元素精通+2000)。
 // · 不吃普通元素增伤、防御、蒸发/融化增幅；可以暴击。
-// · 基础提升（固有天赋常驻）：米提亚 0.028%/精通点（500 封顶 14%）；桑多涅/奥黛塔 0.07%/攻击力点（2000 封顶 14%）；其余角色无。
-const STAR_BOOST = {
-  Mitya: { stat: 'em', rate: 0.00028, cap: 500 },
-  Sandrone: { stat: 'atk', rate: 0.00007, cap: 2000 },
-  Odette: { stat: 'atk', rate: 0.00007, cap: 2000 },
-};
+// · 固有天赋"星耀祝礼"的 14% 基础提升不计入（gensri 公式含此项，但两次游戏内实测都不支持：
+//   桑多涅 9785、薇斯纳 81428 均在不乘 1.14 时闭合，故以实测为准）。
+// · 桑多涅固有天赋"淑女的行事准则"（每 100 点攻击力 +8 点精通，2000 攻击力拿满 160，总面板攻击力口径）
+//   提升的是精通面板但米游社面板不含（实测面板 em 18.6 → 实际战斗 178.6），星系行计算时补上。
+const SANDRONE_EM_BONUS = (atk) => Math.min((atk / 100) * 8, 160);
 // 星系反应伤害行的判定（入表前已过滤为纯伤害行，无需再排增益说明）
 const isStarRow = (l) => /星超导|星扩散/.test(l.name);
-function calcStarRow(basePanel, multPct, cfg, coeff) {
+// emEff：实际精通（桑多涅为面板精通+天赋「淑女的行事准则」加成，其余角色=面板精通）
+function calcStarRow(basePanel, multPct, cfg, coeff, emEff) {
   // 精通乘区 = 1 + 精通项 + 附加精通乘区："星反应伤害提升X%"类buff加进本乘区（gensri实测口径，
   // 网易替换圣遗物测试 570→454 比值 1.256≠1.4 证明非独立乘算）
-  const emZone = 1 + (6 * cfg.em) / (cfg.em + 2000) + cfg.starBonus;
+  const em = emEff === undefined ? cfg.em : emEff;
+  const emZone = 1 + (6 * em) / (em + 2000) + cfg.starBonus;
   const resMult = cfg.enemyRes >= 0 ? 1 - cfg.enemyRes : 1 - cfg.enemyRes / 2; // enemyRes 已是百分数/100 的小数
-  const white = basePanel * multPct * coeff * cfg.starBoost * emZone * resMult;
+  const white = basePanel * multPct * coeff * emZone * resMult;
   const crit = white * (1 + cfg.critDmg / 100);
   const expect = white * (1 + (cfg.critRate / 100) * (cfg.critDmg / 100));
   return { white, crit, expect };
@@ -292,14 +293,12 @@ function calcAll() {
   // 星系反应系数：极星辉域记录次数 0~12（0 次=1.00、1 次=1.45、每多一次 +0.05、12 次封顶 2.00）
   const records = Math.min(12, Math.max(0, Math.round(g('c_records'))));
   const starCoeff = records === 0 ? 1 : Math.min(1.45 + 0.05 * (records - 1), 2);
-  // 星系基础提升：仅米提亚/桑多涅/奥黛塔固有天赋提供，按面板精通/攻击力取（封顶 14%）
-  const boost = STAR_BOOST[current.name];
-  cfg.starBoost = boost
-    ? 1 + boost.rate * Math.min(boost.stat === 'em' ? cfg.em : panel.atk, boost.cap)
-    : 1;
+  // 桑多涅星系行用的实际精通 = 面板精通 + 固有天赋「淑女的行事准则」（米游社面板不含该天赋加成）
+  const emStar = current.name === 'Sandrone' ? cfg.em + SANDRONE_EM_BONUS(panel.atk) : cfg.em;
 
   box.innerHTML = '';
   let charHasStar = false;
+  let charHasLunar = false; // 含月曜直伤行（灵驹飞踏第二段等）
   for (const key of ['combat1', 'combat2', 'combat3']) {
     const t = current.talents?.[key];
     if (!t) continue;
@@ -335,27 +334,33 @@ function calcAll() {
       const isStar = isStarRow(l);
       if (isStar) charHasStar = true;
       // 命座与状态规则登记（逐条模式，效果原文参考公开资料；命座数取米游社/Enka 缓存）：
-      // 兹白月转时隙下灵驹飞踏第二段——太阴降（战技/月笼谐奏触发，4秒，实战近似常驻）伤害提升，提升值相当于防御力的60%；
-      // 一命：每次切换月转时隙后初次施放灵驹飞踏时，第二段月结晶反应伤害提升220%（近似：默认命中）；
-      // 六命：灵驹飞踏消耗全部时隙浮光，超出70点部分每点使本次与3秒内月结晶反应伤害擢升1.6%（增伤乘区）
+      // 兹白灵驹飞踏第二段为月结晶技能（月曜直伤，gensri 口径：防御面板×倍率段×基础提升×月乘区×月曜精通乘区×抗性，
+      // 不吃防御乘区）——太阴降（固有天赋，战技/月笼谐奏触发，4秒，实战近似常驻）：倍率加段，提升值相当于防御力的60%；
+      // 一命：每次切换月转时隙后「初次施放」灵驹飞踏时，第二段月结晶反应伤害提升220%（独立乘区 ×3.2）——
+      //   仅切换后第一次施放生效，默认不计（2026-11-12 打桩实测：C2 伤害按未触发闭合，残差 0.003%）；
+      // 二命：灵驹飞踏倍率加段 550% 防御力；
+      // 六命：灵驹飞踏消耗全部时隙浮光，超出70点部分每点使本次与3秒内月结晶反应伤害擢升1.6%（(1+擢升)乘区）。
+      // 基础提升 = 月兆祝赐·浮明若流（每100防御+0.7%，总防御口径封顶14%，高防面板即拿满）；
+      // 月乘区取 1.62（gensri 列月结晶 1.6，实测 63811 按 1.62 闭合残差 0.006%、按 1.6 差 1.26%）
       let mult = multPct;
       const cons = (window.hoyoPanelForPage || {}).constellation || 0;
-      let lunar = 1;
+      let r;
       if (current.name === 'Zibai' && l.name.includes('灵驹飞踏第二段')) {
+        charHasLunar = true;
         mult += 0.6; // 太阴降 60% 防御力
         if (cons >= 2) mult += 5.5; // 二命 550% 防御力
-        if (cons >= 1) lunar *= 3.2; // 一命：初次施放灵驹飞踏第二段月结晶反应伤害提升220%（×3.2）
+        let white = panel.def * mult * 1.14 * 1.62 * (1 + (6 * cfg.em) / (cfg.em + 2000)) *
+          (cfg.enemyRes >= 0 ? 1 - cfg.enemyRes : 1 - cfg.enemyRes / 2); // 月曜直伤：不吃防御乘区
         if (cons >= 6) {
           const fulight = Math.max(70, Math.round(parseFloat((document.getElementById('c_fulight') || {}).value) || 70));
-          lunar *= 1 + 0.016 * (fulight - 70); // 六命：溢出浮光每点擢升月结晶反应伤害 1.6%
+          white *= 1 + 0.016 * (fulight - 70); // 六命：溢出浮光每点擢升月结晶反应伤害 1.6%
         }
+        r = { white, crit: white * (1 + cfg.critDmg / 100), expect: white * (1 + (cfg.critRate / 100) * (cfg.critDmg / 100)) };
+      } else {
+        r = isStar
+          ? calcStarRow(emScaled ? emStar : panel.atk, mult, cfg, /星超导/.test(l.name) ? starCoeff : 1, emStar)
+          : calcRow(rowPanel, mult, cfg, amplTotal);
       }
-      const r0 = isStar
-        ? calcStarRow(emScaled ? cfg.em : panel.atk, mult, cfg, /星超导/.test(l.name) ? starCoeff : 1)
-        : calcRow(rowPanel, mult, cfg, amplTotal);
-      const r = (lunar !== 1)
-        ? { white: r0.white * lunar, crit: r0.crit * lunar, expect: r0.expect * lunar }
-        : r0;
       const suffixTxt = l.suffix ? '（' + l.suffix + '）' : '';
       html += `<tr><td>${l.name}${suffixTxt}</td>` +
         `<td class="num">${fmtN(r.white)}</td><td class="num">${fmtN(r.crit)}</td><td class="num">${fmtN(r.expect)}</td></tr>`;
@@ -365,9 +370,11 @@ function calcAll() {
     sec.appendChild(table);
     box.appendChild(sec);
   }
-  // 公式说明跟随角色伤害类型：含星系行的角色显示星系公式，其余显示标准公式
+  // 公式说明跟随角色伤害类型：含星系行的角色显示星系公式，含月曜直伤行的角色附加月曜说明，其余显示标准公式
   document.getElementById('calcMeta').innerHTML = charHasStar
-    ? '星超导/星扩散直伤 = 属性×倍率 × 反应系数 × 基础提升 × 精通乘区（1+6×元素精通÷(元素精通+2000)+星反应增伤）× 暴击区 × 抗性区，不吃防御、普通增伤与蒸发/融化增幅；"星反应伤害提升X%"类buff计入精通乘区而非独立乘算；反应系数由极星辉域记录次数决定（0 次=1.00 → 12 次=2.00），星扩散恒为 1。'
+    ? '星超导/星扩散直伤 = 属性×倍率 × 反应系数 × 精通乘区（1+6×元素精通÷(元素精通+2000)+星反应增伤）× 暴击区 × 抗性区，不吃防御、普通增伤与蒸发/融化增幅；"星反应伤害提升X%"类buff计入精通乘区而非独立乘算；反应系数由极星辉域记录次数决定（0 次=1.00 → 12 次=2.00），星扩散恒为 1。固有天赋「淑女的行事准则」的精通加成（桑多涅）已自动计入。'
+    : charHasLunar
+    ? '公式：伤害 = 属性×倍率 × (1+加成) × 暴击区 × 增幅区 × 防御区 × 抗性区。精通增幅（蒸发/融化）= 2.78×元素精通÷(元素精通+1400)。增幅反应仅作用于元素伤害。灵驹飞踏第二段为月结晶技能，按月曜直伤公式：防御×倍率段（含太阴降60%）× 基础提升（月兆祝赐，封顶14%）× 月乘区 1.62 × 月曜精通乘区 × 抗性区，不吃防御区；一命220%仅切换月转时隙后初次施放生效（默认不计）、六命浮光擢升为独立乘区。'
     : '公式：伤害 = 属性×倍率 × (1+加成) × 暴击区 × 增幅区 × 防御区 × 抗性区。精通增幅（蒸发/融化）= 2.78×元素精通÷(元素精通+1400)。增幅反应仅作用于元素伤害。';
 }
 
