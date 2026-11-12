@@ -103,13 +103,13 @@ const FX_PATTERNS = [
   [/攻击力(?:和防御力)?(?:提升|提高)\s*([\d.]+)%/g, 'atk%'],
   [/暴击伤害(?:提升|提高)\s*([\d.]+)%/g, 'cd'],
   [/暴击率(?:提升|提高)\s*([\d.]+)%/g, 'cr'],
-  [/全伤害(?:提升|提高)\s*([\d.]+)%/g, 'bonus'],
+  [/全伤害(?:提升|提高)\s*([\d.]+)%/g, 'bonus.all'],
   [/星扩散反应伤害(?:提升|提高)\s*([\d.]+)%/g, 'star'],
   [/星超导反应伤害(?:提升|提高)\s*([\d.]+)%/g, 'star'],
-  [/普通攻击(?:和重击)?(?:造成的)?伤害(?:提升|提高)\s*([\d.]+)%/g, 'bonus'],
-  [/重击(?:造成的)?伤害(?:提升|提高)\s*([\d.]+)%/g, 'bonus'],
-  [/元素战技(?:造成的)?伤害(?:提升|提高)\s*([\d.]+)%/g, 'bonus'],
-  [/元素爆发(?:造成的)?伤害(?:提升|提高)\s*([\d.]+)%/g, 'bonus'],
+  [/普通攻击(?:和重击)?(?:造成的)?伤害(?:提升|提高)\s*([\d.]+)%/g, 'bonus.normal'],
+  [/重击(?:造成的)?伤害(?:提升|提高)\s*([\d.]+)%/g, 'bonus.charge'],
+  [/元素战技(?:造成的)?伤害(?:提升|提高)\s*([\d.]+)%/g, 'bonus.skill'],
+  [/元素爆发(?:造成的)?伤害(?:提升|提高)\s*([\d.]+)%/g, 'bonus.burst'],
   [/元素充能效率(?:提升|提高)\s*([\d.]+)%/g, 'er'],
   [/生命值(?:提升|提高)\s*([\d.]+)%/g, 'hp%'],
   [/防御力(?:提升|提高)\s*([\d.]+)%/g, 'def%'],
@@ -189,7 +189,9 @@ for (const id of ids) {
       const key = SUBKEY[subProp.propType];
       if (key === undefined) throw new Error('未知副词条枚举 ' + subProp.propType);
       if (key) {
-        const v = subProp.initValue * mSub.m;
+        // 精通 initValue 是点数（36），百分比类是小数（0.096）——精通乘数 = 百分比乘数 / 100
+        const isEm = subProp.propType === 'FIGHT_PROP_ELEMENT_MASTERY';
+        const v = subProp.initValue * (isEm ? mSub.m / 100 : mSub.m);
         s = [key, key === 'em' ? Math.round(v) : Math.round(v * 10) / 10];
       }
     }
