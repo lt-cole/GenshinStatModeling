@@ -56,21 +56,25 @@ check('落库：T1 字段正确', list.some((r) => r.content === MARK + '留言�
 check('落库：T2 附带米提亚', list.some((r) => r.char === '米提亚'), '');
 check('落库：新标记 3 条都在', list.filter((r) => (r.content || '').includes(MARK)).length === 3, '');
 
-// 3. 管理页：按内容定位测试留言标记已处理 → 筛选
+// 3. 管理页：默认视图为未处理；切到全部视图做标记流程（标记后行变灰保留，断言语义稳定）
 await pg.goto(ADMIN + '/', { waitUntil: 'networkidle' });
 await pg.waitForSelector('#rows tr .am-content', { timeout: 3000 }).catch(() => {});
+check('后台默认筛选为未处理', await pg.$eval('button[data-f].active', (e) => e.dataset.f) === 'open');
+await pg.click('button[data-f="all"]');
+await pg.waitForTimeout(200);
 // 找到 T3 测试留言所在行，点击其标记按钮
 const t3Row = pg.locator('#rows tr', { hasText: '留言三' }).first();
 await t3Row.locator('button').first().click();
 await pg.waitForSelector('#rows tr.am-done:has-text("留言三")', { timeout: 3000 }).catch(() => {});
 const doneRow = await pg.locator('#rows tr.am-done:has-text("留言三")').count();
 check('按内容定位标记已处理生效', doneRow === 1, String(doneRow));
+// done 视图必含刚标记条且不含未标记的 T1；open 视图反之（动态基线，不写死库内 done/open 总数）
 await pg.click('button[data-f="done"]');
-const doneCount = await pg.locator('#rows tr').count();
-check('筛选已处理只出 1 条', doneCount === 1, String(doneCount));
+const doneTexts = await pg.$$eval('#rows tr .am-content', (els) => els.map((e) => e.textContent));
+check(`已处理视图含标记条（共 ${doneTexts.length} 条）`, doneTexts.some((t) => t.includes('留言三')) && !doneTexts.some((t) => t.includes('留言一')), JSON.stringify(doneTexts.map((t) => t.slice(0, 10))));
 await pg.click('button[data-f="open"]');
-const openCount = await pg.locator('#rows tr').count();
-check(`筛选未处理出 ${list.length - 1} 条`, openCount === list.length - 1, String(openCount));
+const openTexts = await pg.$$eval('#rows tr .am-content', (els) => els.map((e) => e.textContent));
+check(`未处理视图不含刚标记条（共 ${openTexts.length} 条）`, !openTexts.some((t) => t.includes('留言三')) && openTexts.some((t) => t.includes('留言一')), JSON.stringify(openTexts.map((t) => t.slice(0, 10))));
 
 // 4. 真实留言保护断言：清理测试留言后，库内容必须与提交前基线一致（状态无关，不写死真实留言数量/特征词）
 await pg.request.post(ADMIN + '/api/feedback/delete-marked', { data: { marker: MARK } });
