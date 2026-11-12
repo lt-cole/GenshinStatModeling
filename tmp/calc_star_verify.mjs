@@ -122,19 +122,31 @@ check(`兹白 实测复现(留言#29, C2) 白字 ≈ ${zWhite.toFixed(0)}（游�
 check(`兹白 实测复现 暴击 ≈ ${(zWhite * 3.12).toFixed(0)}（游戏实测 199091）`,
   r && Math.abs(r.crit - 199091) < 90, r ? String(r.crit) : '');
 
-// ===== 2.3 防呆回归：星系输入（记录次数/星反应增伤）仅星系角色显示，无关角色藏入口 =====
-const zibaiHidden = await pg.evaluate(() => ({
-  records: document.getElementById('c_records_wrap').hidden,
-  star: document.getElementById('c_starbonus_wrap').hidden,
-}));
-check('兹白页（无星系行）星系输入隐藏', zibaiHidden.records && zibaiHidden.star, JSON.stringify(zibaiHidden));
+// ===== 2.3 防呆回归：星系输入/时隙浮光按角色显隐——用真实渲染状态（getComputedStyle）断言，
+// 不只看 .hidden 属性（.calc-grid label 的 display:flex 会盖过 [hidden] 的浏览器默认，曾致桑多涅页仍显示浮光输入）
+const inputShown = (id) => pg.$eval('#' + id, (e) => getComputedStyle(e).display !== 'none');
+const zibaiVis = {
+  records: await inputShown('c_records_wrap'),
+  star: await inputShown('c_starbonus_wrap'),
+  fulight: await inputShown('c_fulight_wrap'),
+};
+check('兹白页：星系输入隐藏、浮光输入显示', !zibaiVis.records && !zibaiVis.star && zibaiVis.fulight, JSON.stringify(zibaiVis));
 await pg.goto('http://127.0.0.1:50055/detail.html?name=Sandrone', { waitUntil: 'networkidle' });
 await pg.waitForTimeout(600);
-const sandHidden = await pg.evaluate(() => ({
-  records: document.getElementById('c_records_wrap').hidden,
-  star: document.getElementById('c_starbonus_wrap').hidden,
-}));
-check('桑多涅页（星系角色）星系输入显示', !sandHidden.records && !sandHidden.star, JSON.stringify(sandHidden));
+const sandVis = {
+  records: await inputShown('c_records_wrap'),
+  star: await inputShown('c_starbonus_wrap'),
+  fulight: await inputShown('c_fulight_wrap'),
+};
+check('桑多涅页：星系输入显示、浮光输入隐藏', sandVis.records && sandVis.star && !sandVis.fulight, JSON.stringify(sandVis));
+await pg.goto('http://127.0.0.1:50055/detail.html?name=HuTao', { waitUntil: 'networkidle' });
+await pg.waitForTimeout(600);
+const hutaoVis = {
+  records: await inputShown('c_records_wrap'),
+  star: await inputShown('c_starbonus_wrap'),
+  fulight: await inputShown('c_fulight_wrap'),
+};
+check('胡桃页：星系与浮光输入均隐藏', !hutaoVis.records && !hutaoVis.star && !hutaoVis.fulight, JSON.stringify(hutaoVis));
 
 // ===== 3. 薇斯纳：非伤害行（持续时间/冷却时间/元素能量）不再进计算表 =====
 await pg.goto('http://127.0.0.1:50055/detail.html?name=Vesna', { waitUntil: 'networkidle' });
