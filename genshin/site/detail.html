@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>角色数值 · 原神数值建模</title>
+<link rel="stylesheet" href="assets/genshin.css?v=20261110">
+<style>
+  .layout { display: flex; gap: 24px; padding: 0 28px 40px; flex-wrap: wrap; }
+  .col { flex: 1; min-width: 380px; }
+  h2.sec { font-size: 15px; color: #d3bc8e; margin: 18px 0 8px; border-bottom: 1px solid #2c3850; padding-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { color: #7c8aa0; font-weight: 500; text-align: left; padding: 4px 8px; border-bottom: 1px solid #2c3850; }
+  td { padding: 3px 8px; border-bottom: 1px solid #1c2436; }
+  tr:hover td { background: #1c2436; }
+  td.num { font-variant-numeric: tabular-nums; color: #b8c4d8; }
+  .profile { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; padding: 12px 28px; }
+  .profile .avatar { width: 72px; height: 72px; border-radius: 10px; object-fit: cover; align-self: center; background: #232c40; }
+  .profile h1 { font-size: 22px; color: #e8e2d0; }
+  .profile .meta { color: #d3bc8e; font-size: 13px; }
+  canvas { background: #1c2436; border: 1px solid #2c3850; border-radius: 6px; width: 100%; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: #9aa7bd; padding: 4px 2px; }
+  .legend i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 4px; }
+  a.back { position: absolute; right: 28px; top: 30px; color: #7c8aa0; font-size: 13px; text-decoration: none; }
+  .calc-box { font-size: 13px; }
+  .calc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 14px; margin-bottom: 12px; }
+  .calc-grid label { display: flex; flex-direction: column; gap: 3px; color: #7c8aa0; font-size: 12.5px; }
+  .calc-grid input, .calc-grid select {
+    background: #1c2436; border: 1px solid #2c3850; color: #d8dee9;
+    padding: 5px 8px; border-radius: 4px; font-size: 13px; width: 100%;
+  }
+  #calcOut table { margin-bottom: 10px; }
+  #calcOut .num { font-variant-numeric: tabular-nums; }
+  /* 说明类文字提亮：暗灰 #5a6a80 在深底上对比度仅约 3:1，难以阅读 */
+  #calcMeta, #hoyo_status { color: #b8c4d8; font-size: 13px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<header class="gs-head">
+  <h1>角色数值</h1>
+  <a class="back" href="./">‹ 返回角色列表</a>
+</header>
+<div class="profile" id="profile">加载中…</div>
+
+<div class="layout">
+  <div class="col">
+    <details class="fold">
+      <summary>属性成长曲线（Lv 1 → 90，归一化对比）</summary>
+      <div class="legend">
+        <span><i style="background:#e8b04b"></i>生命上限 HP</span>
+        <span><i style="background:#5cc8a8"></i>攻击力 ATK</span>
+        <span><i style="background:#7ca0d8"></i>防御力 DEF</span>
+        <span><i style="background:#d87ca0"></i>突破加成（右轴）</span>
+      </div>
+      <canvas id="curve" width="760" height="320"></canvas>
+    </details>
+    <details class="fold">
+      <summary>全等级属性表（Lv 1 → 90）</summary>
+      <div style="max-height: 420px; overflow-y: auto;">
+        <table id="statTable">
+          <thead><tr>
+            <th>等级</th><th>突破</th><th id="hpHead">生命上限</th><th>攻击力</th><th>防御力</th><th id="spHead">突破加成</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <div class="col">
+    <details class="fold">
+      <summary>技能倍率表（Lv 1 → 15）</summary>
+      <div id="talents"></div>
+    </details>
+    <details class="fold" open>
+      <summary>伤害计算（标准公式）</summary>
+      <div class="calc-box">
+        <p class="meta" id="hoyo_status" hidden></p>
+        <div class="calc-grid">
+          <label>倍率基于<select id="c_scaling"><option value="atk">攻击力</option><option value="hp">生命值上限</option><option value="def">防御力</option></select></label>
+          <label>面板攻击力<input id="c_atk" type="number" value="2000"></label>
+          <label>面板生命上限<input id="c_hp" type="number" value="30000"></label>
+          <label>面板防御力<input id="c_def" type="number" value="900"></label>
+          <label>暴击率 %<input id="c_cr" type="number" value="50" step="0.1"></label>
+          <label>暴击伤害 %<input id="c_cd" type="number" value="100" step="1"></label>
+          <label>元素伤害加成 %<input id="c_bonus" type="number" value="46.6" step="0.1"></label>
+          <label>元素精通<input id="c_em" type="number" value="100"></label>
+          <label>增幅反应<select id="c_amplify"><option value="1">无</option><option value="1.5">蒸发 1.5×</option><option value="2">蒸发 2.0×</option><option value="1.5">融化 1.5×</option><option value="2">融化 2.0×</option></select></label>
+          <label>角色等级<input id="c_charlv" type="number" value="90"></label>
+          <label>敌人等级<input id="c_enelev" type="number" value="90"></label>
+          <label>敌人抗性 %<input id="c_res" type="number" value="10"></label>
+          <label>极星辉域记录次数<input id="c_records" type="number" value="0" min="0" max="12"></label>
+          <label>星反应增伤 %<input id="c_starbonus" type="number" value="0" step="0.1"></label>
+          <label id="c_fulight_wrap" hidden>时隙浮光消耗<input id="c_fulight" type="number" value="70" min="70"></label>
+          <label>天赋等级<input id="c_tlv" type="number" value="10" min="1" max="15"></label>
+        </div>
+        <div id="calcOut"></div>
+        <p class="meta" id="calcMeta">公式：伤害 = 属性×倍率 × (1+加成) × 暴击区 × 增幅区 × 防御区 × 抗性区。精通增幅（蒸发/融化）= 2.78×元素精通÷(元素精通+1400)。增幅反应仅作用于元素伤害。</p>
+      </div>
+    </details>
+  </div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const name = params.get('name') || 'HuTao';
+let current = null; // 当前角色数据（伤害计算用）
+
+async function boot() {
+  const c = await (await fetch('/api/characters/' + encodeURIComponent(name))).json(); // 角色数据存 SQL Server genshin 库
+  current = c;
+  window.GS_PAGE_NAME = c.nameZh; // 留言浮窗自动附带角色名（feedback.js 读取）
+  document.title = `${c.nameZh} · 角色数值`;
+  document.getElementById('profile').innerHTML =
+    `<img class="avatar" src="${c.icon}" alt="${c.nameZh}" onerror="this.replaceWith(Object.assign(document.createElement('div'), { className: 'avatar avatar-ph', textContent: (this.alt || '?').slice(0, 1), style: 'background:#4a5568' }))"><h1>${c.nameZh}</h1><span class="meta">${c.titleZh} · ${c.element} · ${c.weapon} · 实装版本 ${c.version} · 突破加成：${c.substatZh} · ${c.region || ''}</span>`;
+  document.getElementById('spHead').textContent = c.substatZh;
+  document.getElementById('hpHead').textContent = '生命上限 HP';
+  const fulightWrap = document.getElementById('c_fulight_wrap');
+  if (fulightWrap) fulightWrap.hidden = c.name !== 'Zibai'; // 时隙浮光输入仅兹白（月转时隙机制）需要
+
+  // 属性全表
+  const tbody = document.querySelector('#statTable tbody');
+  tbody.innerHTML = c.stats.map((s) =>
+    `<tr><td class="num">Lv ${s.lv}</td><td class="num">突破${s.asc}</td>
+     <td class="num">${s.hp.toLocaleString()}</td><td class="num">${s.atk.toFixed(1)}</td>
+     <td class="num">${s.def.toLocaleString()}</td><td class="num">${s.sp.toFixed(3)}</td></tr>`).join('');
+
+  drawCurve(c.stats);
+  renderTalents(c.talents, c.substatZh);
+}
+
+// 三条归一化成长曲线（HP/ATK/DEF）+ 突破加成（独立右轴归一）
+function drawCurve(stats) {
+  const cv = document.getElementById('curve');
+  const dpr = devicePixelRatio || 1;
+  const W = 760, H = 320;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const padL = 40, padR = 40, padT = 16, padB = 26;
+  const w = W - padL - padR, h = H - padT - padB;
+
+  ctx.font = '11px sans-serif';
+  // 网格与坐标
+  ctx.strokeStyle = '#2c3850';
+  for (let i = 0; i <= 5; i++) {
+    const x = padL + (w * i) / 5;
+    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + h); ctx.stroke();
+    ctx.fillStyle = '#5a6a80';
+    ctx.fillText('Lv' + Math.round((90 * i) / 5), x - 10, H - 8);
+  }
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (h * i) / 4;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + w, y); ctx.stroke();
+    ctx.fillStyle = '#5a6a80';
+    ctx.fillText(Math.round(100 - (25 * i)) + '%', 6, y + 4);
+  }
+
+  const series = [
+    { key: 'hp', color: '#e8b04b' },
+    { key: 'atk', color: '#5cc8a8' },
+    { key: 'def', color: '#7ca0d8' },
+  ];
+  const spSeries = { key: 'sp', color: '#d87ca0' };
+  const norm = (key) => {
+    const vals = stats.map((s) => s[key]);
+    const min = Math.min(...vals), max = Math.max(...vals);
+    return vals.map((v) => (v - min) / (max - min || 1));
+  };
+  const line = (vals, color) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath();
+    vals.forEach((v, i) => {
+      const x = padL + (w * i) / (vals.length - 1);
+      const y = padT + h - v * h;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.stroke();
+  };
+
+  for (const s of series) line(norm(s.key), s.color);
+  // 突破加成为阶梯（右轴归一）
+  const sp = stats.map((s) => s.sp);
+  const spMin = Math.min(...sp), spMax = Math.max(...sp);
+  line(sp.map((v) => (v - spMin) / (spMax - spMin || 1)), spSeries.color);
+}
+
+// 技能倍率表：labels 每行自带 {paramN:F?P?} 占位符——按占位符解析参数编号取值，
+// 不按位置对位（params 键序为字典序，param10 会排在 param2 前，位置映射必然错位）。
+// label 的 | 后缀（如"元素精通"）保留在属性名括号内，不丢弃。
+function renderTalents(talents) {
+  const box = document.getElementById('talents');
+  const LV_MAX = 15;
+  const fmt = (v, spec) => {
+    const m = spec.match(/F(\d)/);
+    const digits = m ? +m[1] : 0;
+    return spec.endsWith('P') ? (v * 100).toFixed(digits) + '%' : v.toFixed(digits);
+  };
+  for (const key of ['combat1', 'combat2', 'combat3']) {
+    const t = talents[key];
+    if (!t) continue;
+    const det = document.createElement('details');
+    det.className = 'fold';
+    const sum = document.createElement('summary');
+    sum.textContent = t.name;
+    det.appendChild(sum);
+
+    // 解析每个 label 行：占位符编号 / 属性名 / 纯文字后缀
+    const lines = (t.labels || []).map((raw) => {
+      const matches = [...raw.matchAll(/\{param(\d+)(?::(\w+))?\}/g)];
+      const parts = raw.split('|');
+      return {
+        name: parts[0],
+        suffix: parts.slice(1).join('').replace(/\{param[^}]*\}/g, '').trim(),
+        nums: matches.map((m) => +m[1]),
+        specs: matches.map((m) => m[2] || 'F0'),
+      };
+    }).filter((l) => l.nums.length > 0 && t.params['param' + l.nums[0]]);
+
+    const lvCount = Math.max(...lines.map((l) => t.params['param' + l.nums[0]].length), 1);
+    const table = document.createElement('table');
+    const head = `<thead><tr><th>属性</th>${Array.from({ length: lvCount }, (_, i) => `<th>Lv${i + 1}</th>`).join('')}</tr></thead>`;
+    const bodyRows = lines.map((l) => {
+      const nameCell = l.suffix ? `${l.name}（${l.suffix}）` : l.name;
+      const cells = Array.from({ length: LV_MAX }, (_, lv) => {
+        const arr = t.params['param' + l.nums[0]];
+        const v = arr ? arr[lv] : undefined;
+        return `<td class="num">${v === undefined ? '—' : fmt(v, l.specs[0])}</td>`;
+      });
+      return `<tr><td>${nameCell}</td>${cells.join('')}</tr>`;
+    });
+    table.innerHTML = head + `<tbody>${bodyRows.join('')}</tbody>`;
+    det.appendChild(table);
+    box.appendChild(det);
+  }
+}
+// ===== 伤害计算（标准公式）=====
+// 倍率基数（面板属性）× 技能倍率 × (1+加成) × 暴击区 × 增幅区 × 防御区 × 抗性区
+function calcRow(basePanel, multPct, cfg, amplifyMult) {
+  const base = basePanel * multPct;
+  const defMult = (cfg.charLv + 100) / ((cfg.charLv + 100) + (cfg.enemyLv + 100));
+  const resMult = cfg.enemyRes >= 0 ? 1 - cfg.enemyRes : 1 - cfg.enemyRes / 2; // enemyRes 已是百分数/100 的小数
+  const white = base * (1 + cfg.dmgBonus / 100) * defMult * resMult * amplifyMult;
+  const crit = white * (1 + cfg.critDmg / 100);
+  const expect = white * (1 + (cfg.critRate / 100) * (cfg.critDmg / 100));
+  return { white, crit, expect };
+}
+
+// 星系反应直伤行（星超导/星扩散，如"递变聚爆星超导伤害|倍率元素精通"、"棱晶弹星超导伤害|倍率"）：
+// 强度研究院（gensri.wiki）实测口径：伤害 = 面板属性×倍率 × 反应系数 × 基础提升 × 精通乘区 × 暴击区 × 抗性区。
+// · 倍率基数：标签带"元素精通"后缀用精通面板（米提亚），否则用攻击面板（七七/桑多涅/奥黛塔等，倍率数值已反推吻合）。
+// · 反应系数：由极星辉域记录次数决定——0 次=1.00、1 次=1.45、每多一次 +0.05、12 次封顶 2.00；星扩散恒为 1。
+// · 精通乘区沿用月曜公式：1 + 6×元素精通÷(元素精通+2000)。
+// · 不吃普通元素增伤、防御、蒸发/融化增幅；可以暴击。
+// · 基础提升（固有天赋常驻）：米提亚 0.028%/精通点（500 封顶 14%）；桑多涅/奥黛塔 0.07%/攻击力点（2000 封顶 14%）；其余角色无。
+const STAR_BOOST = {
+  Mitya: { stat: 'em', rate: 0.00028, cap: 500 },
+  Sandrone: { stat: 'atk', rate: 0.00007, cap: 2000 },
+  Odette: { stat: 'atk', rate: 0.00007, cap: 2000 },
+};
+// 星系反应伤害行的判定（入表前已过滤为纯伤害行，无需再排增益说明）
+const isStarRow = (l) => /星超导|星扩散/.test(l.name);
+function calcStarRow(basePanel, multPct, cfg, coeff) {
+  // 精通乘区 = 1 + 精通项 + 附加精通乘区："星反应伤害提升X%"类buff加进本乘区（gensri实测口径，
+  // 网易替换圣遗物测试 570→454 比值 1.256≠1.4 证明非独立乘算）
+  const emZone = 1 + (6 * cfg.em) / (cfg.em + 2000) + cfg.starBonus;
+  const resMult = cfg.enemyRes >= 0 ? 1 - cfg.enemyRes : 1 - cfg.enemyRes / 2; // enemyRes 已是百分数/100 的小数
+  const white = basePanel * multPct * coeff * cfg.starBoost * emZone * resMult;
+  const crit = white * (1 + cfg.critDmg / 100);
+  const expect = white * (1 + (cfg.critRate / 100) * (cfg.critDmg / 100));
+  return { white, crit, expect };
+}
+const fmtN = (v) => v >= 10000 ? Math.round(v).toLocaleString() : v.toFixed(1);
+
+// 伤害计算折叠区：输入变化实时重算
+function calcAll() {
+  const box = document.getElementById('calcOut');
+  if (!current) return;
+  const g = (id) => parseFloat(document.getElementById(id).value) || 0;
+  const cfg = {
+    charLv: g('c_charlv'), enemyLv: g('c_enelev'), enemyRes: g('c_res') / 100,
+    critRate: g('c_cr'), critDmg: g('c_cd'), dmgBonus: g('c_bonus'), starBonus: g('c_starbonus') / 100,
+    em: g('c_em'), scaling: document.getElementById('c_scaling').value,
+    tlv: Math.min(15, Math.max(1, Math.round(g('c_tlv')))),
+  };
+  // 增幅系数：无增幅 = 1（乘法恒等）；有增幅时叠精通加成（蒸发/融化 2.78×元素精通÷(元素精通+1400)）
+  const amplifyMult = parseFloat(document.getElementById('c_amplify').value) || 1;
+  const amplBonus = amplifyMult > 1 ? 1 + (2.78 * cfg.em) / (cfg.em + 1400) : 1;
+  const amplTotal = amplifyMult * amplBonus;
+  const panel = { atk: g('c_atk'), hp: g('c_hp'), def: g('c_def') };
+  const scalingPanel = { atk: panel.atk, hp: panel.hp, def: panel.def }[cfg.scaling] || panel.atk;
+  // 星系反应系数：极星辉域记录次数 0~12（0 次=1.00、1 次=1.45、每多一次 +0.05、12 次封顶 2.00）
+  const records = Math.min(12, Math.max(0, Math.round(g('c_records'))));
+  const starCoeff = records === 0 ? 1 : Math.min(1.45 + 0.05 * (records - 1), 2);
+  // 星系基础提升：仅米提亚/桑多涅/奥黛塔固有天赋提供，按面板精通/攻击力取（封顶 14%）
+  const boost = STAR_BOOST[current.name];
+  cfg.starBoost = boost
+    ? 1 + boost.rate * Math.min(boost.stat === 'em' ? cfg.em : panel.atk, boost.cap)
+    : 1;
+
+  box.innerHTML = '';
+  let charHasStar = false;
+  for (const key of ['combat1', 'combat2', 'combat3']) {
+    const t = current.talents?.[key];
+    if (!t) continue;
+    const lines = (t.labels || []).map((raw) => {
+      const matches = [...raw.matchAll(/\{param(\d+)(?::(\w+))?\}/g)];
+      const parts = raw.split('|');
+      return { name: parts[0], suffix: parts.slice(1).join('').replace(/\{param[^}]*\}/g, '').trim(),
+               num: matches.length ? +matches[0][1] : 0, spec: matches.length ? matches[0][2] : 'F0' };
+    // 计算表仅保留伤害行：名称含"伤害/射击"且非增益说明（排除持续时间/冷却时间/体力消耗/元素能量/治疗量及"伤害增加/提升"类行）；
+    // "虚影"为已知特例（奈芙尔幻戏虚影一/二/三段，以元素精通为基数的直伤行）
+    }).filter((l) => l.num > 0 && /伤害|射击|虚影/.test(l.name) && !/增加|提升|百分比/.test(l.name));
+    const starAny = lines.some(isStarRow);
+    if (!lines.length) continue;
+
+    const sec = document.createElement('section');
+    sec.className = 'card';
+    const h3 = document.createElement('h3');
+    h3.textContent = t.name + `（天赋 Lv ${cfg.tlv}${starAny ? ' · 含星系反应伤害' : ''}）`;
+    sec.appendChild(h3);
+    const table = document.createElement('table');
+    const head = '<thead><tr><th>属性</th><th>无暴击</th><th>暴击</th><th>期望</th></tr></thead>';
+    let html = head + '<tbody>';
+    for (const l of lines) {
+      const multPct = (t.params['param' + l.num] || [])[cfg.tlv - 1];
+      if (multPct === undefined) continue;
+      // 星系反应行走星系公式；标签后缀声明倍率基数的行按后缀取面板
+      // （"元素精通"如米提亚星超导、"防御力"如兹白灵驹飞踏、"生命值上限"类），其余跟随"倍率基于"下拉。
+      // 星超导吃反应系数，星扩散恒为 1
+      const emScaled = l.suffix.includes('精通');
+      const suffixDef = l.suffix.includes('防御力');
+      const suffixHp = l.suffix.includes('生命');
+      const rowPanel = emScaled ? cfg.em : suffixDef ? panel.def : suffixHp ? panel.hp : scalingPanel;
+      const isStar = isStarRow(l);
+      if (isStar) charHasStar = true;
+      // 命座与状态规则登记（逐条模式，效果原文参考公开资料；命座数取米游社/Enka 缓存）：
+      // 兹白月转时隙下灵驹飞踏第二段——太阴降（战技/月笼谐奏触发，4秒，实战近似常驻）伤害提升，提升值相当于防御力的60%；
+      // 一命：每次切换月转时隙后初次施放灵驹飞踏时，第二段月结晶反应伤害提升220%（近似：默认命中）；
+      // 六命：灵驹飞踏消耗全部时隙浮光，超出70点部分每点使本次与3秒内月结晶反应伤害擢升1.6%（增伤乘区）
+      let mult = multPct;
+      const cons = (window.hoyoPanelForPage || {}).constellation || 0;
+      let lunar = 1;
+      if (current.name === 'Zibai' && l.name.includes('灵驹飞踏第二段')) {
+        mult += 0.6; // 太阴降 60% 防御力
+        if (cons >= 2) mult += 5.5; // 二命 550% 防御力
+        if (cons >= 1) lunar *= 3.2; // 一命：初次施放灵驹飞踏第二段月结晶反应伤害提升220%（×3.2）
+        if (cons >= 6) {
+          const fulight = Math.max(70, Math.round(parseFloat((document.getElementById('c_fulight') || {}).value) || 70));
+          lunar *= 1 + 0.016 * (fulight - 70); // 六命：溢出浮光每点擢升月结晶反应伤害 1.6%
+        }
+      }
+      const r0 = isStar
+        ? calcStarRow(emScaled ? cfg.em : panel.atk, mult, cfg, /星超导/.test(l.name) ? starCoeff : 1)
+        : calcRow(rowPanel, mult, cfg, amplTotal);
+      const r = (lunar !== 1)
+        ? { white: r0.white * lunar, crit: r0.crit * lunar, expect: r0.expect * lunar }
+        : r0;
+      const suffixTxt = l.suffix ? '（' + l.suffix + '）' : '';
+      html += `<tr><td>${l.name}${suffixTxt}</td>` +
+        `<td class="num">${fmtN(r.white)}</td><td class="num">${fmtN(r.crit)}</td><td class="num">${fmtN(r.expect)}</td></tr>`;
+    }
+    html += '</tbody>';
+    table.innerHTML = html;
+    sec.appendChild(table);
+    box.appendChild(sec);
+  }
+  // 公式说明跟随角色伤害类型：含星系行的角色显示星系公式，其余显示标准公式
+  document.getElementById('calcMeta').innerHTML = charHasStar
+    ? '星超导/星扩散直伤 = 属性×倍率 × 反应系数 × 基础提升 × 精通乘区（1+6×元素精通÷(元素精通+2000)+星反应增伤）× 暴击区 × 抗性区，不吃防御、普通增伤与蒸发/融化增幅；"星反应伤害提升X%"类buff计入精通乘区而非独立乘算；反应系数由极星辉域记录次数决定（0 次=1.00 → 12 次=2.00），星扩散恒为 1。'
+    : '公式：伤害 = 属性×倍率 × (1+加成) × 暴击区 × 增幅区 × 防御区 × 抗性区。精通增幅（蒸发/融化）= 2.78×元素精通÷(元素精通+1400)。增幅反应仅作用于元素伤害。';
+}
+
+// 输入持久化：面板/敌人参数存 localStorage（跨角色共用一套试验台参数），进页面自动恢复
+const CFG_KEY = 'genshin_calc_inputs';
+function saveCalcInputs() {
+  const data = {};
+  document.querySelectorAll('.calc-grid input, .calc-grid select').forEach((el) => { data[el.id] = el.value; });
+  try { localStorage.setItem(CFG_KEY, JSON.stringify(data)); } catch (_) { /* 隐私模式等存不进：静默 */ }
+}
+function restoreCalcInputs() {
+  try {
+    const data = JSON.parse(localStorage.getItem(CFG_KEY));
+    if (!data) return;
+    Object.entries(data).forEach(([id, v]) => {
+      const el = document.getElementById(id);
+      if (el) el.value = v;
+    });
+  } catch (_) { /* 无存档或解析失败：保持默认值 */ }
+}
+// 输入联动（实时重算）
+function bindCalcInputs() {
+  restoreCalcInputs(); // 首算前恢复上次输入
+  ['c_charlv','c_enelev','c_res','c_cr','c_cd','c_bonus','c_em','c_atk','c_hp','c_def','c_tlv','c_records','c_starbonus','c_fulight'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', calcAll);
+  });
+  document.getElementById('c_scaling').addEventListener('change', calcAll);
+  document.getElementById('c_amplify').addEventListener('change', calcAll);
+  const grid = document.querySelector('.calc-grid'); // 事件委托统一存档，覆盖输入框与下拉框
+  grid.addEventListener('input', saveCalcInputs);
+  grid.addEventListener('change', saveCalcInputs);
+}
+// ===== 米游社面板：登录入口在主页（index.html），此处读取 localStorage 缓存自动填充本角色 =====
+const HOYO_KEY = 'genshin_hoyo_panels';
+const hoyoStatus = (t) => {
+  const el = document.getElementById('hoyo_status');
+  el.textContent = t;
+  el.hidden = false;
+};
+
+// 缓存中取当前角色面板并覆盖填充面板输入；返回缓存时间字符串，无缓存返回 ''
+window.hoyoPanelForPage = null; // 当前角色的米游社面板数据（含命座数），供命座规则等计算逻辑读取
+function hoyoFillPanel() {
+  try {
+    const cache = JSON.parse(localStorage.getItem(HOYO_KEY) || 'null');
+    if (!cache || !cache.chars || !window.GS_PAGE_NAME) return '';
+    const p = cache.chars[window.GS_PAGE_NAME];
+    if (!p) { window.hoyoPanelForPage = null; return ''; }
+    window.hoyoPanelForPage = p; // 供命座规则等计算逻辑读取（含 constellation 字段）
+    const setv = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
+    setv('c_atk', p.atk); setv('c_hp', p.hp); setv('c_def', p.def);
+    setv('c_cr', p.cr); setv('c_cd', p.cd); setv('c_em', p.em); setv('c_bonus', p.bonus);
+    setv('c_charlv', p.level);
+    calcAll(); saveCalcInputs();
+    return cache.time + (p.constellation !== undefined ? ' · ' + (window.GS_PAGE_NAME || '') + ' ' + p.constellation + '命' : '');
+  } catch { return ''; }
+}
+
+bindCalcInputs();
+boot().then(() => {
+  calcAll();
+  const t = hoyoFillPanel(); // 米游社缓存优先于上次手填输入（在 restoreCalcInputs 之后执行，体现"直接调用"）
+  if (t) hoyoStatus('已自动填入米游社面板（' + t + '，登录入口在主页）');
+});
+</script>
+<script src="assets/feedback.js?v=20261111"></script>
+</body>
+</html>

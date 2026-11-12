@@ -1,0 +1,12 @@
+# 构建产物
+genshin/bin/
+
+# 运行时数据（凭据与用户数据在 SQL Server genshin 库，会话凭据不入库）
+genshin/data/hoyo_session.json
+
+# 测试运行产物截图
+tmp/*.png
+
+# 日志
+logs/
+*.log

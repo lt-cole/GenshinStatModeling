@@ -1,0 +1,106 @@
+/* 原神数值建模子站：独立深色风格（与镜像站零关联） */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: linear-gradient(180deg, #10151f 0%, #1a2233 100%);
+  color: #d8dee9;
+  font-family: system-ui, "Microsoft YaHei", sans-serif;
+  min-height: 100vh;
+}
+.gs-head { padding: 26px 28px 10px; position: relative; }
+.gs-head h1 { font-size: 24px; color: #d3bc8e; letter-spacing: 1px; }
+.gs-head .sub { color: #7c8aa0; font-size: 13px; margin-top: 4px; }
+.gs-head .back { position: absolute; right: 28px; top: 30px; color: #7c8aa0; font-size: 13px; text-decoration: none; }
+.gs-head .back:hover { color: #d3bc8e; }
+
+/* 筛选栏 */
+.filters { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 12px 28px; }
+.elem-group, .rar-group { display: flex; gap: 4px; }
+button {
+  border: 1px solid #2c3850; background: #1c2436; color: #9aa7bd;
+  padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+button:hover { color: #d3bc8e; border-color: #d3bc8e; }
+button.active { background: #d3bc8e; color: #1a2233; border-color: #d3bc8e; font-weight: 600; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:disabled:hover { color: #9aa7bd; border-color: #2c3850; }
+#search {
+  background: #1c2436; border: 1px solid #2c3850; color: #d8dee9;
+  padding: 6px 12px; border-radius: 4px; font-size: 13px; width: 200px;
+}
+#search::placeholder { color: #5a6a80; }
+
+/* 角色卡片 */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px;
+  padding: 10px 28px 40px;
+}
+  .card .avatar { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; background: #232c40; }
+  .card .elem { font-size: 12.5px; font-weight: 600; }
+  .card .meta { font-size: 11px; color: #7c8aa0; }
+.card {
+  border: 1px solid #2c3850;
+  border-radius: 8px;
+  padding: 14px 10px;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  transition: transform .12s, border-color .12s;
+}
+.card:hover { transform: translateY(-3px); border-color: #d3bc8e; }
+.card .icon { font-size: 26px; }
+.card .name { font-size: 15px; font-weight: 600; color: #e8e2d0; }
+.card .en { font-size: 11px; color: #5a6a85; }
+.card .meta { font-size: 11.5px; color: #d3bc8e; }
+.empty { padding: 20px 28px; color: #5a6a85; }
+
+/* 头像加载失败的占位（元素色圆 + 名字首字） */
+.avatar-ph {
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255, 255, 255, 0.85); font-weight: 600;
+}
+.card .avatar-ph { font-size: 22px; }
+.profile .avatar-ph { font-size: 30px; }
+
+/* 折叠区块（数据面板默认收起，点标题展开） */
+.fold { border: 1px solid #2c3850; border-radius: 6px; margin-bottom: 14px; }
+.fold summary {
+  padding: 8px 14px; cursor: pointer; font-size: 14px; color: #d3bc8e;
+  list-style: none; display: flex; align-items: center; gap: 8px; font-weight: 600;
+}
+.fold summary::-webkit-details-marker { display: none; }
+.fold summary::before { content: '▸'; color: #5a6a80; font-size: 12px; }
+.fold[open] summary::before { content: '▾'; }
+.fold summary:hover { background: #1c2436; border-radius: 6px; color: #e8e2d0; }
+.fold[open] { padding-bottom: 10px; }
+
+/* 留言板浮窗（全站共用，feedback.js 注入 DOM） */
+.fb-btn {
+  position: fixed; right: 20px; bottom: 20px; z-index: 90;
+  border-radius: 20px; padding: 8px 16px; font-size: 13px; font-weight: 600;
+  background: #d3bc8e; color: #1a2233; border-color: #d3bc8e;
+}
+.fb-btn:hover { color: #1a2233; filter: brightness(1.08); }
+.fb-panel {
+  position: fixed; right: 20px; bottom: 68px; z-index: 90;
+  width: 300px; max-width: calc(100vw - 40px);
+  background: #1c2436; border: 1px solid #2c3850; border-radius: 8px;
+  padding: 12px; display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+.fb-panel[hidden] { display: none; }
+.fb-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #d3bc8e; font-weight: 600; }
+.fb-close { border: none; background: none; font-size: 16px; padding: 0 4px; color: #7c8aa0; }
+.fb-text {
+  background: #10151f; border: 1px solid #2c3850; color: #d8dee9;
+  border-radius: 4px; font-size: 13px; padding: 8px; min-height: 96px; resize: vertical;
+  font-family: inherit; line-height: 1.5; width: 100%;
+}
+.fb-foot { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #5a6a80; }
+.fb-count { flex: 1; }
+.fb-msg { color: #d3bc8e; }
+.fb-send { padding: 4px 14px; }

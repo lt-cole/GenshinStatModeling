@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>原神角色数值建模</title>
+<link rel="stylesheet" href="assets/genshin.css?v=20261110">
+<style>
+  .hoyo-box { padding: 4px 14px 12px; }
+  .hoyo-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .hoyo-row input {
+    background: #1c2436; border: 1px solid #2c3850; color: #d8dee9;
+    padding: 5px 8px; border-radius: 4px; font-size: 13px; width: 160px;
+  }
+  .hoyo-note { font-size: 13px; color: #b8c4d8; line-height: 1.6; }
+</style>
+</head>
+<body>
+<header class="gs-head">
+  <h1>原神角色数值建模</h1>
+  <p class="sub">全角色基础属性成长 / 突破加成 / 技能倍率 —— 数据快照 v5.2.15</p>
+  <nav><a class="back" href="https://yl2.1998991.xyz/">‹ 返回镜像站</a></nav>
+</header>
+
+<div class="filters">
+  <div class="elem-group" id="elemGroup">
+    <button data-elem="" class="active">全部</button>
+  </div>
+  <div class="rar-group">
+    <button data-rar="0" class="active">全部</button>
+    <button data-rar="5">5★</button>
+    <button data-rar="4">4★</button>
+  </div>
+  <input id="search" type="search" placeholder="搜索角色名（中/英）">
+</div>
+
+<details class="fold">
+  <summary>米游社面板（短信登录，全角色自动填入）</summary>
+  <div class="hoyo-box">
+    <div class="hoyo-row">
+      <input id="hoyo_phone" type="tel" maxlength="11" placeholder="米哈游手机号">
+      <button id="hoyo_send" type="button">发送验证码</button>
+      <input id="hoyo_code" type="text" maxlength="6" placeholder="短信验证码">
+      <button id="hoyo_login" type="button">登录并拉取面板</button>
+      <button id="hoyo_refresh" type="button" title="用服务器上已有的登录会话重新拉取面板，无需重新短信登录">重新拉取面板</button>
+    </div>
+    <p class="hoyo-note" id="hoyo_status">凭据仅存服务器内存，重启需重新登录；登录拉取后，点进任意角色详情页会自动填入其游戏面板</p>
+    <div id="hoyo_captcha"></div>
+  </div>
+</details>
+
+<main class="grid" id="grid"></main>
+<p class="empty" id="empty" hidden>没有匹配的角色</p>
+
+<script>
+const ELEMENT_ORDER = ['火', '水', '风', '雷', '岩', '草', '冰'];
+// 头像加载失败（图源未收录的新角色）→ 元素色占位头像 + 角色名首字
+function avatarErr(img) {
+  const color = ELEM_COLOR[img.dataset.elem] || '#8a9a8c';
+  const ph = document.createElement('div');
+  ph.className = 'avatar avatar-ph';
+  ph.style.background = color;
+  ph.textContent = (img.alt || '?').slice(0, 1);
+  img.replaceWith(ph);
+}
+// 元素主题色（原神元素配色近似）
+const ELEM_COLOR = { '火': '#ef7930', '水': '#4cc2f1', '风': '#74c2a9', '雷': '#af7ac5', '岩': '#d3a63b', '草': '#9fd64b', '冰': '#9fd6e3' };
+
+let chars = [];
+let fElem = '', fRar = 0, fQuery = '';
+
+async function boot() {
+  chars = await (await fetch('/api/characters')).json(); // 角色数据存 SQL Server genshin 库，经 API 提供
+  // 元素按钮组（按出现顺序）
+  const elems = [...new Set(chars.map(c => c.element))].sort((a, b) => ELEMENT_ORDER.indexOf(a) - ELEMENT_ORDER.indexOf(b));
+  const group = document.getElementById('elemGroup');
+  for (const e of elems) {
+    const btn = document.createElement('button');
+    btn.dataset.elem = e;
+    btn.textContent = e;
+    btn.addEventListener('click', () => { fElem = (fElem === e ? '' : e); sync(); });
+    group.appendChild(btn);
+  }
+  document.getElementById('search').addEventListener('input', (e) => { fQuery = e.target.value.trim().toLowerCase(); sync(); });
+  document.querySelectorAll('.rar-group button').forEach((b) =>
+    b.addEventListener('click', () => { fRar = +b.dataset.rar; sync(); }));
+  sync();
+}
+
+function sync() {
+  document.querySelectorAll('#elemGroup button').forEach((b) =>
+    b.classList.toggle('active', b.dataset.elem === fElem));
+  document.querySelectorAll('.rar-group button').forEach((b) =>
+    b.classList.toggle('active', +b.dataset.rar === fRar));
+
+  const grid = document.getElementById('grid');
+  const list = chars.filter((c) =>
+    (!fElem || c.element === fElem) &&
+    (!fRar || c.rarity === fRar) &&
+    (!fQuery || c.name.toLowerCase().includes(fQuery) || c.nameZh.includes(fQuery)));
+  // 按实装版本由新到旧排列（版本分段数值比较），同版本内按 ID 降序（期内上线顺序近似）
+  list.sort((a, b) => {
+    const pa = String(a.version || '0').split('.').map(Number);
+    const pb = String(b.version || '0').split('.').map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const va = pa[i] || 0, vb = pb[i] || 0;
+      if (va !== vb) return vb - va;
+    }
+    return b.id - a.id;
+  });
+  grid.innerHTML = list.map((c) => `
+    <a class="card" href="detail.html?name=${c.name}">
+      <img class="avatar" src="${c.icon}" loading="lazy" alt="${c.nameZh}" data-elem="${c.element}" onerror="avatarErr(this)">
+      <span class="name">${c.nameZh}</span>
+      <span class="elem" style="color:${ELEM_COLOR[c.element] || '#9aa7bd'}">${c.element}</span>
+      <span class="meta">${'★'.repeat(c.rarity)} · ${c.weapon} · v${c.version}</span>
+    </a>`).join('');
+  document.getElementById('empty').hidden = list.length > 0;
+}
+boot();
+
+// ===== 米游社面板：短信登录 → 拉全角色面板 → localStorage 缓存（角色详情页读取并自动填充） =====
+const HOYO_KEY = 'genshin_hoyo_panels';
+const hoyoStatus = (t) => { document.getElementById('hoyo_status').textContent = t; };
+const hoyoSendBtn = document.getElementById('hoyo_send');
+const hoyoLoginBtn = document.getElementById('hoyo_login');
+const hoyoLoginLabel = hoyoLoginBtn.textContent;
+let hoyoCdTimer = null;
+let hoyoCdActive = false; // 倒计时进行中时，发送按钮状态由倒计时独占
+
+// 前端异常自动上报：米游社链路错误落服务器日志（用户无需打开 F12）
+function hoyoReport(tag, e) {
+  try {
+    fetch('/api/hoyo/client-log', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: tag + (e && e.message ? ': ' + e.message : String(e || '')), stack: (e && e.stack) || '' }),
+    }).catch(() => {});
+  } catch {}
+}
+// 极验相关资源加载失败（含扩展拦截）也会走 window error 捕获阶段，自动上报
+window.addEventListener('error', (e) => {
+  const src = e.target && (e.target.src || e.target.href);
+  if (src && src.includes('geetest')) hoyoReport('geetest-资源加载失败', new Error(src));
+}, true);
+
+// 请求期间按钮禁用 + 文字变化（防连点重复提交），结束后恢复
+function hoyoBusy(btn, busy, label) {
+  btn.disabled = busy;
+  if (label !== undefined) btn.textContent = label;
+}
+
+// 发送成功后 60 秒倒计时灰显（与服务端限频窗口一致）
+function hoyoCountdown(sec = 60) {
+  clearInterval(hoyoCdTimer);
+  hoyoCdActive = true;
+  let left = sec;
+  hoyoBusy(hoyoSendBtn, true, `已发送（${left}s）`);
+  hoyoCdTimer = setInterval(() => {
+    left--;
+    if (left <= 0) {
+      clearInterval(hoyoCdTimer);
+      hoyoCdActive = false;
+      hoyoBusy(hoyoSendBtn, false, '重新发送');
+    } else {
+      hoyoBusy(hoyoSendBtn, true, `已发送（${left}s）`);
+    }
+  }, 1000);
+}
+
+async function hoyoFetchPanels() {
+  hoyoBusy(hoyoLoginBtn, true, '拉取面板中…');
+  hoyoStatus('正在拉取面板…');
+  try {
+    const resp = await fetch('/api/hoyo/panels', { method: 'POST' });
+    const body = await resp.json().catch(() => ({}));
+    if (!body.ok) { hoyoStatus(body.error || '拉取失败'); hoyoReport('panels-' + resp.status, new Error(body.error || '拉取失败')); return; }
+    localStorage.setItem(HOYO_KEY, JSON.stringify(body));
+    const names = Object.keys(body.chars || {}).join('、');
+    hoyoStatus(`面板已缓存 ${Object.keys(body.chars || {}).length} 个角色（${body.time}）：${names}。点进对应角色详情页自动填入`);
+  } catch (e) { hoyoReport('panels-network', e); hoyoStatus('网络异常：' + e.message); }
+  finally { hoyoBusy(hoyoLoginBtn, false, hoyoLoginLabel); }
+}
+
+// 极验人机验证：服务端返回 aigis 会话时，加载官方 JS 弹窗，用户完成滑动验证后返回 {session_id, data:验证结果}
+function hoyoLoadScript(src) {
+  return new Promise((ok, err) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => ok();
+    s.onerror = () => err(new Error('极验脚本加载失败'));
+    document.head.appendChild(s);
+  });
+}
+
+async function hoyoSolveAigis(aigis) {
+  const d = aigis.data || {};
+  // 米哈游 GT4 形态：data 含 gt（即 GT4 captchaId）与 use_v4:true，且无 challenge
+  const isGT4 = d.captcha_id || d.use_v4 || (d.gt && !d.challenge);
+  if (isGT4 && typeof initGeetest4 === 'undefined') {
+    await hoyoLoadScript('https://static.geetest.com/v4/gt4.js'); // 极验 GT4
+  }
+  if (!isGT4 && typeof initGeetest === 'undefined') {
+    await hoyoLoadScript('https://static.geetest.com/static/js/gt.js'); // 极验 GT3
+  }
+  return new Promise((resolve, reject) => {
+    if (isGT4) {
+      const captchaId = d.captcha_id || d.gt;
+      initGeetest4({
+        captchaId,
+        riskType: d.risk_type, // 米哈游风控指定挑战类型（如 icon 图标点选），缺失时后端会以 -3102 拒收验证结果
+        product: 'popup',
+        lang: 'zho',
+        userInfo: JSON.stringify({ session_id: aigis.session_id }),
+        https: true,
+        protocol: 'https',
+      }, (obj) => {
+        obj.onSuccess(() => {
+          const v = obj.getValidate();
+          resolve({ session_id: aigis.session_id, data: v });
+        });
+        obj.onError(() => reject(new Error('人机验证未通过，请重试')));
+        // GT4 API：onReady 后调 showCaptcha()（GT3 的 show() 在 GT4 上不存在）
+        obj.onReady(() => {
+          try { obj.showCaptcha(); } catch (e) { reject(e); }
+        });
+        obj.appendTo('#hoyo_captcha');
+      });
+    } else if (d.gt && d.challenge) {
+      initGeetest({ gt: d.gt, challenge: d.challenge, product: 'popup', offline: false }, (obj) => {
+        obj.onSuccess(() => {
+          const v = obj.getValidate();
+          resolve({ session_id: aigis.session_id, data: { challenge: v.geetest_challenge, validate: v.geetest_validate, seccode: v.geetest_seccode } });
+        });
+        obj.onError(() => reject(new Error('人机验证未通过，请重试')));
+        obj.appendTo('#hoyo_captcha');
+        obj.verify();
+      });
+    } else {
+      reject(new Error('极验会话参数缺失'));
+    }
+  });
+}
+
+// 发送验证码；被要求极验时（body.aigis）弹窗求解后带验证结果重试
+async function hoyoSendFlow(phone, aigis) {
+  if (hoyoSendBtn.disabled && !aigis) return;
+  hoyoBusy(hoyoSendBtn, true, aigis ? '验证重试中…' : '发送中…');
+  hoyoStatus(aigis ? '正在带人机验证结果重试…' : '发送中…');
+  try {
+    const resp = await fetch('/api/hoyo/sms/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, aigis }) });
+    const body = await resp.json().catch(() => ({}));
+    if (body.ok) {
+      hoyoStatus('验证码已发送，请查收短信');
+      hoyoCountdown(60);
+      return;
+    }
+    if (body.aigis) {
+      hoyoStatus('米哈游要求人机验证，请在下方弹窗完成滑动验证');
+      const solution = await hoyoSolveAigis(body.aigis);
+      await hoyoSendFlow(phone, solution);
+      return;
+    }
+    hoyoStatus(body.error || '发送失败');
+    hoyoReport('send-' + resp.status, new Error(body.error || '发送失败'));
+  } catch (e) {
+    hoyoReport('send-network', e);
+    hoyoStatus(e.message || '网络异常');
+  }
+  finally { if (!hoyoCdActive) hoyoBusy(hoyoSendBtn, false, '发送验证码'); }
+}
+
+hoyoSendBtn.addEventListener('click', () => {
+  const phone = document.getElementById('hoyo_phone').value.trim();
+  if (!/^1\d{10}$/.test(phone)) { hoyoStatus('手机号格式不对'); return; }
+  hoyoSendFlow(phone);
+});
+
+// Enter 键提交：手机号框回车=发验证码，验证码框回车=登录
+document.getElementById('hoyo_phone').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') hoyoSendBtn.click();
+});
+document.getElementById('hoyo_code').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') hoyoLoginBtn.click();
+});
+
+// 校验验证码登录；被要求极验时（body.aigis）同 send 流程弹窗求解后重试
+async function hoyoLoginFlow(phone, code, aigis) {
+  hoyoBusy(hoyoLoginBtn, true, '登录中…');
+  hoyoBusy(hoyoSendBtn, true); // 登录期间冻结发送按钮，结束后恢复
+  hoyoStatus('登录中…');
+  try {
+    const resp = await fetch('/api/hoyo/sms/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code, aigis }) });
+    const body = await resp.json().catch(() => ({}));
+    if (body.aigis) {
+      hoyoStatus('米哈游要求人机验证，请在下方弹窗完成滑动验证');
+      const solution = await hoyoSolveAigis(body.aigis);
+      await hoyoLoginFlow(phone, code, solution);
+      return;
+    }
+    if (!body.ok) {
+      hoyoStatus(body.error || '登录失败');
+      hoyoReport('login-' + resp.status, new Error(body.error || '登录失败'));
+      return;
+    }
+    await hoyoFetchPanels();
+  } catch (e) {
+    hoyoReport('login-network', e);
+    hoyoStatus(e.message || '网络异常');
+  }
+  finally {
+    hoyoBusy(hoyoLoginBtn, false, hoyoLoginLabel);
+    if (!hoyoCdActive) hoyoBusy(hoyoSendBtn, false);
+  }
+}
+
+hoyoLoginBtn.addEventListener('click', () => {
+  const phone = document.getElementById('hoyo_phone').value.trim();
+  const code = document.getElementById('hoyo_code').value.trim();
+  if (!/^1\d{10}$/.test(phone) || !code) { hoyoStatus('请先填手机号并获取验证码'); return; }
+  hoyoLoginFlow(phone, code);
+});
+
+// 重新拉取面板：直接用服务器上已有的登录会话（无需短信）
+document.getElementById('hoyo_refresh').addEventListener('click', hoyoFetchPanels);
+
+// 页面打开时若已有缓存则列出已缓存角色
+function hoyoShowCacheList() {
+  try {
+    const cache = JSON.parse(localStorage.getItem(HOYO_KEY) || 'null');
+    if (cache && cache.chars) {
+      const names = Object.keys(cache.chars).join('、');
+      const count = Object.keys(cache.chars).length;
+      hoyoStatus(`已缓存 ${count} 个角色面板（${cache.time}）：${names}。点进对应角色详情页自动填入`);
+      document.getElementById('hoyo_login').textContent = '重新登录并拉取面板';
+    }
+  } catch {}
+}
+hoyoShowCacheList();
+</script>
+<script src="assets/feedback.js?v=20261111"></script>
+</body>
+</html>

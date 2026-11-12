@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>留言管理 · 原神数值站</title>
+<link rel="stylesheet" href="assets/genshin.css?v=20261111">
+<style>
+  .am-wrap { padding: 18px 28px 40px; max-width: 1100px; }
+  .am-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .am-bar input[type="password"] {
+    background: #1c2436; border: 1px solid #2c3850; color: #d8dee9;
+    padding: 6px 10px; border-radius: 4px; font-size: 13px; width: 220px;
+  }
+  .am-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .am-table th { color: #7c8aa0; font-weight: 500; text-align: left; padding: 6px 8px; border-bottom: 1px solid #2c3850; }
+  .am-table td { padding: 8px; border-bottom: 1px solid #1c2436; vertical-align: top; }
+  .am-table tr:hover td { background: #1c2436; }
+  .am-done td { opacity: 0.45; }
+  .am-time { color: #7c8aa0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .am-page { color: #7c8aa0; max-width: 180px; word-break: break-all; }
+  .am-char { color: #d3bc8e; white-space: nowrap; }
+  .am-content { color: #d8dee9; white-space: pre-wrap; word-break: break-word; min-width: 200px; }
+  .am-ctx { color: #7c8aa0; font-size: 11px; margin-top: 3px; line-height: 1.5; }
+  .am-empty { padding: 24px 8px; color: #5a6a85; }
+  .am-note { color: #d3bc8e; font-size: 12.5px; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<header class="gs-head">
+  <h1>留言管理</h1>
+  <a class="back" href="http://127.0.0.1:50055/">‹ 返回角色列表</a>
+</header>
+<div class="am-wrap">
+  <div class="am-bar">
+    <button id="reload" type="button">刷新</button>
+    <span style="width:14px"></span>
+    <button type="button" class="active" data-f="all">全部</button>
+    <button type="button" data-f="open">未处理</button>
+    <button type="button" data-f="done">已处理</button>
+    <span class="am-note">本页由仅本机的运维站提供（127.0.0.1:50056），公网不可达</span>
+  </div>
+  <table class="am-table">
+    <thead><tr><th>时间</th><th>来源页</th><th>角色</th><th>内容</th><th>操作</th></tr></thead>
+    <tbody id="rows"><tr><td class="am-empty" colspan="5">输入口令后加载</td></tr></tbody>
+  </table>
+  <p class="am-note" id="note"></p>
+</div>
+<script>
+// 本页经 go:embed 编译进 genshin-server 二进制，由运维站（127.0.0.1:50056）托管，公网无此文件；
+// 数据接口同源相对路径；用户留言内容一律 textContent 渲染，禁止 innerHTML 拼接（XSS）。
+const $ = (s) => document.querySelector(s);
+let all = [];
+let filter = 'all';
+
+async function api(path, opts = {}) {
+  const headers = {};
+  if (opts.body) headers['Content-Type'] = 'application/json';
+  const resp = await fetch(path, { ...opts, headers });
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(body.error || 'HTTP ' + resp.status);
+  return body;
+}
+
+async function loadList() {
+  $('#note').textContent = '';
+  try {
+    all = await api('/api/feedback');
+    render();
+  } catch (e) {
+    all = [];
+    render();
+    $('#note').textContent = '加载失败：' + e.message + '（请通过 http://127.0.0.1:50056/ 打开本页）';
+  }
+}
+
+function render() {
+  const tb = $('#rows');
+  tb.innerHTML = '';
+  const list = [...all].reverse().filter((r) =>
+    filter === 'all' ? true : (filter === 'open' ? !r.done : r.done));
+  if (!list.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.className = 'am-empty';
+    td.colSpan = 5;
+    td.textContent = all.length ? '当前筛选下暂无留言' : '暂无留言';
+    tr.appendChild(td);
+    tb.appendChild(tr);
+    return;
+  }
+  for (const r of list) {
+    const tr = document.createElement('tr');
+    if (r.done) tr.className = 'am-done';
+    const tdTime = document.createElement('td');
+    tdTime.className = 'am-time';
+    tdTime.textContent = (r.time || '').replace('T', ' ');
+    const tdPage = document.createElement('td');
+    tdPage.className = 'am-page';
+    tdPage.textContent = r.page || '/';
+    const tdChar = document.createElement('td');
+    tdChar.className = 'am-char';
+    tdChar.textContent = r.char || '';
+    const tdMsg = document.createElement('td');
+    tdMsg.className = 'am-content';
+    tdMsg.textContent = r.content;
+    if (r.ctx && Object.keys(r.ctx).length) { // 自动附带的页面上下文（伤害计算输入/米游社缓存/UA）
+      const ctxDiv = document.createElement('div');
+      ctxDiv.className = 'am-ctx';
+      ctxDiv.textContent = Object.entries(r.ctx).map(([k, v]) => k + '=' + v).join('；');
+      tdMsg.appendChild(ctxDiv);
+    }
+    const tdOp = document.createElement('td');
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = r.done ? '取消已处理' : '标记已处理';
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await api('/api/feedback/resolve', { method: 'POST', body: JSON.stringify({ id: r.id, done: !r.done }) });
+        r.done = !r.done;
+        render();
+      } catch (e) {
+        $('#note').textContent = e.message;
+        b.disabled = false;
+      }
+    });
+    tdOp.appendChild(b);
+    tr.append(tdTime, tdPage, tdChar, tdMsg, tdOp);
+    tb.appendChild(tr);
+  }
+}
+
+$('#reload').addEventListener('click', loadList);
+document.querySelectorAll('button[data-f]').forEach((b) =>
+  b.addEventListener('click', () => {
+    filter = b.dataset.f;
+    document.querySelectorAll('button[data-f]').forEach((x) => x.classList.toggle('active', x === b));
+    render();
+  }));
+loadList(); // 页面打开即加载
+</script>
+</body>
+</html>
