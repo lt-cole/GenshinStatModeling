@@ -174,9 +174,9 @@ async function hoyoFetchPanels() {
     const resp = await fetch('/api/hoyo/panels', { method: 'POST' });
     const body = await resp.json().catch(() => ({}));
     if (!body.ok) { hoyoStatus(body.error || '拉取失败'); hoyoReport('panels-' + resp.status, new Error(body.error || '拉取失败')); return; }
-    localStorage.setItem(HOYO_KEY, JSON.stringify(body));
+    localStorage.setItem(HOYO_KEY, JSON.stringify(body)); // body 含 uid：留言时归属留言人游戏账号
     const names = Object.keys(body.chars || {}).join('、');
-    hoyoStatus(`面板已缓存 ${Object.keys(body.chars || {}).length} 个角色（${body.time}）：${names}。点进对应角色详情页自动填入`);
+    hoyoStatus(`面板已缓存 ${Object.keys(body.chars || {}).length} 个角色（${body.time}${body.uid ? ' · UID ' + body.uid : ''}）：${names}。点进对应角色详情页自动填入`);
   } catch (e) { hoyoReport('panels-network', e); hoyoStatus('网络异常：' + e.message); }
   finally { hoyoBusy(hoyoLoginBtn, false, hoyoLoginLabel); }
 }

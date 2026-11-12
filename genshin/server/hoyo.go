@@ -768,8 +768,8 @@ func (f *hoyoSession) handlePanels(w http.ResponseWriter, r *http.Request) {
 		slog.Error("拉取角色列表失败", "err", err, "retcode", func() any { var ae *hoyoAPIError; if errors.As(err, &ae) { return ae.Retcode }; return nil }())
 		// game_record 被风控/参数拒时降级：Enka.Network 公开展柜数据（仅展柜角色）
 		if chars, en := f.enkaPanels(); en == nil {
-			slog.Info("Enka 展柜面板拉取成功", "chars", len(chars))
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time": time.Now().Format("2006-01-02 15:04"), "chars": chars, "source": "enka"})
+			slog.Info("Enka 展柜面板拉取成功", "chars", len(chars), "uid", f.gameUID)
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time": time.Now().Format("2006-01-02 15:04"), "chars": chars, "source": "enka", "uid": f.gameUID})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": msg})
@@ -803,8 +803,8 @@ func (f *hoyoSession) handlePanels(w http.ResponseWriter, r *http.Request) {
 		}
 		slog.Error("拉取角色详情失败", "err", err, "retcode", func() any { var ae *hoyoAPIError; if errors.As(err, &ae) { return ae.Retcode }; return nil }())
 		if chars, en := f.enkaPanels(); en == nil {
-			slog.Info("Enka 展柜面板拉取成功", "chars", len(chars))
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time": time.Now().Format("2006-01-02 15:04"), "chars": chars, "source": "enka"})
+			slog.Info("Enka 展柜面板拉取成功", "chars", len(chars), "uid", f.gameUID)
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time": time.Now().Format("2006-01-02 15:04"), "chars": chars, "source": "enka", "uid": f.gameUID})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": msg})
@@ -879,11 +879,12 @@ func (f *hoyoSession) handlePanels(w http.ResponseWriter, r *http.Request) {
 			chars[c.Base.Name] = panel
 		}
 	}
-	slog.Info("米游社面板拉取成功", "chars", len(chars), "remote", r.RemoteAddr)
+	slog.Info("米游社面板拉取成功", "chars", len(chars), "uid", f.gameUID, "remote", r.RemoteAddr)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":    true,
 		"time":  time.Now().Format("2006-01-02 15:04"),
 		"chars": chars,
+		"uid":   f.gameUID, // 会话对应的原神 UID：前端随面板缓存，留言时归属留言人游戏账号
 	})
 }
 

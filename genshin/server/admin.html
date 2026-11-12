@@ -17,6 +17,7 @@
   .am-table td { padding: 8px; border-bottom: 1px solid #1c2436; vertical-align: top; }
   .am-table tr:hover td { background: #1c2436; }
   .am-done td { opacity: 0.45; }
+  .am-id { color: #d3bc8e; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .am-time { color: #7c8aa0; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .am-page { color: #7c8aa0; max-width: 180px; word-break: break-all; }
   .am-char { color: #d3bc8e; white-space: nowrap; }
@@ -41,8 +42,8 @@
     <span class="am-note">本页由仅本机的运维站提供（127.0.0.1:50056），公网不可达</span>
   </div>
   <table class="am-table">
-    <thead><tr><th>时间</th><th>来源页</th><th>角色</th><th>内容</th><th>操作</th></tr></thead>
-    <tbody id="rows"><tr><td class="am-empty" colspan="5">输入口令后加载</td></tr></tbody>
+    <thead><tr><th>ID</th><th>时间</th><th>来源页</th><th>角色</th><th>内容</th><th>操作</th></tr></thead>
+    <tbody id="rows"><tr><td class="am-empty" colspan="6">输入口令后加载</td></tr></tbody>
   </table>
   <p class="am-note" id="note"></p>
 </div>
@@ -83,7 +84,7 @@ function render() {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
     td.className = 'am-empty';
-    td.colSpan = 5;
+    td.colSpan = 6;
     td.textContent = all.length ? '当前筛选下暂无留言' : '暂无留言';
     tr.appendChild(td);
     tb.appendChild(tr);
@@ -92,6 +93,9 @@ function render() {
   for (const r of list) {
     const tr = document.createElement('tr');
     if (r.done) tr.className = 'am-done';
+    const tdID = document.createElement('td');
+    tdID.className = 'am-id';
+    tdID.textContent = '#' + r.id;
     const tdTime = document.createElement('td');
     tdTime.className = 'am-time';
     tdTime.textContent = (r.time || '').replace('T', ' ');
@@ -126,7 +130,7 @@ function render() {
       }
     });
     tdOp.appendChild(b);
-    tr.append(tdTime, tdPage, tdChar, tdMsg, tdOp);
+    tr.append(tdID, tdTime, tdPage, tdChar, tdMsg, tdOp);
     tb.appendChild(tr);
   }
 }

@@ -51,6 +51,7 @@
         if (p && p.weapon) s += ' 当前武器：' + p.weapon + (p.affix ? ' 精炼' + p.affix : ''); // 便于站长按武器被动复现实测
         else if (p && p.weaponId) s += ' 当前武器Id：' + p.weaponId + (p.affix ? ' 精炼' + p.affix : ''); // Enka 路径无名称，仅 id
         ctx['米游社面板缓存'] = s;
+        if (cache.uid) ctx['面板账号UID'] = String(cache.uid); // 留言归属留言人的游戏账号（最后一次登录拉面板的会话）
       }
     } catch {}
     return ctx;
