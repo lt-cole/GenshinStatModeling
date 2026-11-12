@@ -13,8 +13,8 @@ const check = (name, ok, detail = '') => { if (ok) { pass++; console.log('  ✓'
 const set = async (id, v) => {
   const tag = await pg.$eval('#' + id, (e) => e.tagName);
   if (tag === 'SELECT') { await pg.selectOption('#' + id, v); return; }
-  await pg.fill('#' + id, String(v));
-  await pg.dispatchEvent('#' + id, 'input');
+  // evaluate 直设值+触发 input：星系输入等仅部分角色可见，pg.fill 对隐藏元素会失败
+  await pg.$eval('#' + id, (e, val) => { e.value = val; e.dispatchEvent(new Event('input', { bubbles: true })); }, String(v));
 };
 // 持久化上线后输入会跨导航保留，每个用例先重置回默认基准
 const DEFAULTS = { c_scaling: 'atk', c_atk: '2000', c_hp: '30000', c_def: '900', c_cr: '50', c_cd: '100', c_bonus: '46.6', c_em: '100', c_amplify: '1', c_charlv: '90', c_enelev: '90', c_res: '10', c_records: '0', c_starbonus: '0', c_tlv: '10' };
@@ -121,6 +121,20 @@ check(`兹白 实测复现(留言#29, C2) 白字 ≈ ${zWhite.toFixed(0)}（游�
   r && Math.abs(r.white - 63811) < 30, r ? JSON.stringify(r) : '无行');
 check(`兹白 实测复现 暴击 ≈ ${(zWhite * 3.12).toFixed(0)}（游戏实测 199091）`,
   r && Math.abs(r.crit - 199091) < 90, r ? String(r.crit) : '');
+
+// ===== 2.3 防呆回归：星系输入（记录次数/星反应增伤）仅星系角色显示，无关角色藏入口 =====
+const zibaiHidden = await pg.evaluate(() => ({
+  records: document.getElementById('c_records_wrap').hidden,
+  star: document.getElementById('c_starbonus_wrap').hidden,
+}));
+check('兹白页（无星系行）星系输入隐藏', zibaiHidden.records && zibaiHidden.star, JSON.stringify(zibaiHidden));
+await pg.goto('http://127.0.0.1:50055/detail.html?name=Sandrone', { waitUntil: 'networkidle' });
+await pg.waitForTimeout(600);
+const sandHidden = await pg.evaluate(() => ({
+  records: document.getElementById('c_records_wrap').hidden,
+  star: document.getElementById('c_starbonus_wrap').hidden,
+}));
+check('桑多涅页（星系角色）星系输入显示', !sandHidden.records && !sandHidden.star, JSON.stringify(sandHidden));
 
 // ===== 3. 薇斯纳：非伤害行（持续时间/冷却时间/元素能量）不再进计算表 =====
 await pg.goto('http://127.0.0.1:50055/detail.html?name=Vesna', { waitUntil: 'networkidle' });

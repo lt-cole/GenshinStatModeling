@@ -89,8 +89,8 @@
           <label>角色等级<input id="c_charlv" type="number" value="90"></label>
           <label>敌人等级<input id="c_enelev" type="number" value="90"></label>
           <label>敌人抗性 %<input id="c_res" type="number" value="10"></label>
-          <label>极星辉域记录次数<input id="c_records" type="number" value="0" min="0" max="12"></label>
-          <label>星反应增伤 %<input id="c_starbonus" type="number" value="0" step="0.1"></label>
+          <label id="c_records_wrap">极星辉域记录次数<input id="c_records" type="number" value="0" min="0" max="12"></label>
+          <label id="c_starbonus_wrap">星反应增伤 %<input id="c_starbonus" type="number" value="0" step="0.1"></label>
           <label id="c_fulight_wrap" hidden>时隙浮光消耗<input id="c_fulight" type="number" value="70" min="70"></label>
           <label>天赋等级<input id="c_tlv" type="number" value="10" min="1" max="15"></label>
         </div>
@@ -117,6 +117,12 @@ async function boot() {
   document.getElementById('hpHead').textContent = '生命上限 HP';
   const fulightWrap = document.getElementById('c_fulight_wrap');
   if (fulightWrap) fulightWrap.hidden = c.name !== 'Zibai'; // 时隙浮光输入仅兹白（月转时隙机制）需要
+  // 星系输入（记录次数/星反应增伤）仅对含星系反应行的角色显示——无关角色藏入口，
+  // 防残留输入干扰对账（曾发生：薇斯纳场景的星反应增伤36%残留到桑多涅页，星超导虚高恰好36%）
+  const hasStarRow = ['combat1', 'combat2', 'combat3'].some((k) =>
+    (c.talents?.[k]?.labels || []).some((l) => /星超导|星扩散/.test(l)));
+  document.getElementById('c_records_wrap').hidden = !hasStarRow;
+  document.getElementById('c_starbonus_wrap').hidden = !hasStarRow;
 
   // 属性全表
   const tbody = document.querySelector('#statTable tbody');
