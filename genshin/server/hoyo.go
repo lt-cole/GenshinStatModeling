@@ -674,8 +674,17 @@ func (f *hoyoSession) enkaPanels() (map[string]map[string]any, error) {
 	var d struct {
 		PlayerInfo     *struct{} `json:"playerInfo"`
 		AvatarInfoList []struct {
-			AvatarID     int64              `json:"avatarId"`
-			TalentIdList []any              `json:"talentIdList"`
+			AvatarID     int64 `json:"avatarId"`
+			TalentIdList []any `json:"talentIdList"`
+			EquipList    []struct {
+				ItemID int64 `json:"itemId"`
+				Weapon struct {
+					AffixMap map[string]int `json:"affixMap"`
+				} `json:"weapon"`
+				Flat struct {
+					ItemType string `json:"itemType"`
+				} `json:"flat"`
+			} `json:"equipList"`
 			FightPropMap map[string]float64 `json:"fightPropMap"`
 		} `json:"avatarInfoList"`
 	}
@@ -707,6 +716,16 @@ func (f *hoyoSession) enkaPanels() (map[string]map[string]any, error) {
 			"cr":    strconv.FormatFloat(get("20")*100, 'f', 1, 64),
 			"cd":    strconv.FormatFloat(get("22")*100, 'f', 1, 64),
 			"em":    strconv.FormatFloat(get("28"), 'f', 1, 64),
+		}
+		for _, eq := range a.EquipList { // 武器在 equipList 中（Enka 该端点无顶层 weapon 字段，也无名称文本）
+			if eq.Flat.ItemType == "ITEM_WEAPON" && eq.ItemID != 0 {
+				panel["weaponId"] = eq.ItemID
+				for _, lv := range eq.Weapon.AffixMap {
+					panel["affix"] = lv // 单武器单精炼词条，取任一值
+					break
+				}
+				break
+			}
 		}
 		if pt, ok := hoyoElemProp[info[1]]; ok {
 			panel["bonus"] = strconv.FormatFloat(get(strconv.Itoa(int(pt)))*100, 'f', 1, 64)
@@ -803,6 +822,10 @@ func (f *hoyoSession) handlePanels(w http.ResponseWriter, r *http.Request) {
 				Element                 string `json:"element"`
 				ActivedConstellationNum int    `json:"actived_constellation_num"`
 			} `json:"base"`
+			Weapon struct {
+				Name       string `json:"name"`
+				AffixLevel int    `json:"affix_level"`
+			} `json:"weapon"`
 			SelectedProperties []struct {
 				PropertyType int    `json:"property_type"`
 				Final        string `json:"final"`
@@ -847,6 +870,10 @@ func (f *hoyoSession) handlePanels(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+		}
+		if c.Weapon.Name != "" { // 武器名称与精炼等级（米游社 detail 自带中文名）
+			panel["weapon"] = c.Weapon.Name
+			panel["affix"] = c.Weapon.AffixLevel
 		}
 		if c.Base.Name != "" {
 			chars[c.Base.Name] = panel

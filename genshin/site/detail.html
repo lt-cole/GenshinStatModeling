@@ -429,7 +429,9 @@ function hoyoFillPanel() {
     setv('c_cr', p.cr); setv('c_cd', p.cd); setv('c_em', p.em); setv('c_bonus', p.bonus);
     setv('c_charlv', p.level);
     calcAll(); saveCalcInputs();
-    return cache.time + (p.constellation !== undefined ? ' · ' + (window.GS_PAGE_NAME || '') + ' ' + p.constellation + '命' : '');
+    return cache.time +
+      (p.constellation !== undefined ? ' · ' + (window.GS_PAGE_NAME || '') + ' ' + p.constellation + '命' : '') +
+      (p.weapon ? ' · ' + p.weapon + (p.affix ? ' 精炼' + p.affix : '') : '');
   } catch { return ''; }
 }
 

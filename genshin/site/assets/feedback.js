@@ -45,7 +45,13 @@
     });
     try {
       const cache = JSON.parse(localStorage.getItem('genshin_hoyo_panels') || 'null');
-      if (cache && cache.time) ctx['米游社面板缓存'] = cache.time + '（' + Object.keys(cache.chars || {}).length + ' 角色）';
+      if (cache && cache.time) {
+        let s = cache.time + '（' + Object.keys(cache.chars || {}).length + ' 角色）';
+        const p = cache.chars && (window.GS_PAGE_NAME ? cache.chars[window.GS_PAGE_NAME] : null);
+        if (p && p.weapon) s += ' 当前武器：' + p.weapon + (p.affix ? ' 精炼' + p.affix : ''); // 便于站长按武器被动复现实测
+        else if (p && p.weaponId) s += ' 当前武器Id：' + p.weaponId + (p.affix ? ' 精炼' + p.affix : ''); // Enka 路径无名称，仅 id
+        ctx['米游社面板缓存'] = s;
+      }
     } catch {}
     return ctx;
   }

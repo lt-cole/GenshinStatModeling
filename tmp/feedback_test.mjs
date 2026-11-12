@@ -3,7 +3,7 @@
 // 1. 清理历史测试留言（只删【自动化测试】标记记录，真实留言保留）
 // 2. 三次提交（第4次429）→ 落库断言
 // 3. 管理页（按内容定位测试留言）标记已处理 → 筛选 → 清理
-// 4. 真实留言保护断言：清理后勘误×2 与 薇斯纳详细留言 必须仍在
+// 4. 真实留言保护断言：清理测试留言后，库内容与提交前基线快照完全一致
 import { chromium } from 'file:///C:/Users/Administrator/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/node_modules/playwright/index.mjs';
 const BASE = 'http://127.0.0.1:50055';
 const ADMIN = 'http://127.0.0.1:50056';
@@ -26,9 +26,12 @@ await pg.request.post(ADMIN + '/api/feedback/delete-marked', { data: { marker: '
 const delBody = await delResp.json().catch(() => ({}));
 console.log('  前置清理:', delBody.deleted ?? 0, '条历史测试留言');
 
+// 1.5 真实留言基线快照（后续断言以此为基线做差集，不写死真实留言数量与特征词）
+const baseline = await (await pg.request.get(ADMIN + '/api/feedback')).json();
+
 // 2. 三次提交：T1/T2/T3 成功落库，T4 被 429
-async function submit(text) {
-  await pg.goto(BASE + '/', { waitUntil: 'networkidle' });
+async function submit(text, url) {
+  await pg.goto(url || BASE + '/', { waitUntil: 'networkidle' });
   await pg.click('.fb-btn');
   await pg.fill('.fb-text', text);
   await pg.click('.fb-send');
@@ -37,7 +40,7 @@ async function submit(text) {
 }
 let msg = await submit(MARK + '留言一：首页浮窗提交');
 check('T1 提交成功提示', msg.includes('已收到'), msg);
-msg = await submit(MARK + '留言二：米提亚页伤害计算');
+msg = await submit(MARK + '留言二：米提亚页伤害计算', BASE + '/detail.html?name=Mitya');
 check('T2 提交成功提示', msg.includes('已收到'), msg);
 msg = await submit(MARK + '留言三：占满限频名额');
 check('T3 提交成功提示', msg.includes('已收到'), msg);
@@ -48,7 +51,7 @@ check('T4 限频 429 提示', msg.includes('频繁'), msg);
 
 // 落库断言：3 条测试留言 + 字段正确
 let list = await (await pg.request.get(ADMIN + '/api/feedback')).json();
-check('落库：共 6 条（3 真实 + 3 新测试）', list.length === 6, String(list.length));
+check(`落库：基线 ${baseline.length} 条 + 新测试 3 条`, list.length === baseline.length + 3, String(list.length) + ' vs 基线 ' + baseline.length);
 check('落库：T1 字段正确', list.some((r) => r.content === MARK + '留言一：首页浮窗提交' && r.page === '/' && !r.char), '');
 check('落库：T2 附带米提亚', list.some((r) => r.char === '米提亚'), '');
 check('落库：新标记 3 条都在', list.filter((r) => (r.content || '').includes(MARK)).length === 3, '');
@@ -67,13 +70,14 @@ const doneCount = await pg.locator('#rows tr').count();
 check('筛选已处理只出 1 条', doneCount === 1, String(doneCount));
 await pg.click('button[data-f="open"]');
 const openCount = await pg.locator('#rows tr').count();
-check('筛选未处理出 2 条', openCount === 2, String(openCount));
+check(`筛选未处理出 ${list.length - 1} 条`, openCount === list.length - 1, String(openCount));
 
-// 4. 真实留言保护断言：清理测试留言后，3 条真实留言必须保留
+// 4. 真实留言保护断言：清理测试留言后，库内容必须与提交前基线一致（状态无关，不写死真实留言数量/特征词）
 await pg.request.post(ADMIN + '/api/feedback/delete-marked', { data: { marker: MARK } });
 list = await (await pg.request.get(ADMIN + '/api/feedback')).json();
-const realKept = list.filter((r) => r.content.includes('勘误') || r.content.includes('打桩') || r.content.includes('86级'));
-check('清理后真实留言保留 3 条', list.length === 3 && realKept.length === 3, JSON.stringify(list.map((r) => r.content.slice(0, 15))));
+const sameAsBaseline = list.length === baseline.length &&
+  baseline.every((b0) => list.some((r) => r.id === b0.id && r.content === b0.content));
+check(`清理后真实留言保留 ${baseline.length} 条（与基线一致）`, sameAsBaseline, JSON.stringify(list.map((r) => r.content.slice(0, 15))));
 
 // 5. 公网不可达回归
 await pg.goto(BASE + '/', { waitUntil: 'networkidle' });
