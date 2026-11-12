@@ -35,8 +35,8 @@
   <div class="am-bar">
     <button id="reload" type="button">刷新</button>
     <span style="width:14px"></span>
-    <button type="button" class="active" data-f="all">全部</button>
-    <button type="button" data-f="open">未处理</button>
+    <button type="button" data-f="all">全部</button>
+    <button type="button" class="active" data-f="open">未处理</button>
     <button type="button" data-f="done">已处理</button>
     <span class="am-note">本页由仅本机的运维站提供（127.0.0.1:50056），公网不可达</span>
   </div>
@@ -51,7 +51,7 @@
 // 数据接口同源相对路径；用户留言内容一律 textContent 渲染，禁止 innerHTML 拼接（XSS）。
 const $ = (s) => document.querySelector(s);
 let all = [];
-let filter = 'all';
+let filter = 'open'; // 默认筛选未处理：站长进后台首先关心待办
 
 async function api(path, opts = {}) {
   const headers = {};
