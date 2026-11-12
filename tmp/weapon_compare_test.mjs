@@ -18,6 +18,11 @@ const bars = () => pg.evaluate(() => window.GS_WEAPON_BARS || []);
 
 // ===== 1. 无缓存：默认参考面板出图（实测去零头/典型配装合成）+ 右列填充 =====
 await pg.goto(BASE + '/detail.html?name=HuTao', { waitUntil: 'networkidle' });
+await pg.evaluate(() => { // 模拟首次访问：清输入存档与面板缓存（默认面板仅对首访填充）
+  localStorage.removeItem('genshin_calc_inputs');
+  localStorage.removeItem('genshin_hoyo_panels');
+});
+await pg.reload({ waitUntil: 'networkidle' });
 await pg.waitForTimeout(1000);
 const bars0 = await pg.evaluate(() => window.GS_WEAPON_BARS || []);
 const cur0 = bars0.find((b) => b.isCur);
@@ -125,7 +130,8 @@ await pg.screenshot({ path: 'F:/GenshinStatModeling/tmp/t_weapon_compare.png' })
 // ===== 6. 实测角色默认面板：桑多涅（狼末 + 留言板实测去零头），无缓存走默认 =====
 await pg.goto(BASE + '/detail.html?name=Sandrone', { waitUntil: 'networkidle' }); await pg.waitForTimeout(600);
 await pg.evaluate(() => {
-  localStorage.removeItem('genshin_hoyo_panels'); // 移除缓存走默认面板
+  localStorage.removeItem('genshin_calc_inputs'); // 输入存档一并清（默认面板仅对首访填充）
+  localStorage.removeItem('genshin_hoyo_panels');
 });
 await pg.reload({ waitUntil: 'networkidle' }); await pg.waitForTimeout(1000);
 const bars2 = await pg.evaluate(() => window.GS_WEAPON_BARS || []);

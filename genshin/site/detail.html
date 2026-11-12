@@ -400,7 +400,12 @@ function evalRow(row, cur, panel, cfg, ctx) {
   const amplBonus = ctx.amplifyMult > 1 ? 1 + (2.78 * rc.em) / (rc.em + 1400) : 1;
   const rowPanel = row.emScaled ? rc.em : row.suffixDef ? panel.def : row.suffixHp ? panel.hp
     : ({ atk: panel.atk, hp: panel.hp, def: panel.def }[cfg.scaling] || panel.atk);
-  return calcRow(rowPanel, mult, rc, ctx.amplifyMult * amplBonus);
+  let r = calcRow(rowPanel, mult, rc, ctx.amplifyMult * amplBonus);
+  if (row.isLingjian && ctx.zhengsu > 0) {
+    // 灵剑伤害行同样吃整肃（#75 实测：罗莎莉亚大招→薇斯纳直接大招，灵剑伤害 5961.8×忠忱4.001×整肃1.1 = 26239 闭合）
+    r = { white: r.white * ctx.zhengsuBoost, crit: r.crit * ctx.zhengsuBoost, expect: r.expect * ctx.zhengsuBoost };
+  }
+  return r;
 }
 
 // 伤害计算折叠区：输入变化实时重算
@@ -490,9 +495,10 @@ function calcAll() {
           `  × 增伤区 ${(1 + cfg.dmgBonus / 100).toFixed(4)}（元素伤害加成 ${cfg.dmgBonus}%）`,
           `  × ${amplZh}`,
           `  × 防御区 ${((cfg.charLv + 100) / ((cfg.charLv + 100) + (cfg.enemyLv + 100))).toFixed(4)}（Lv${cfg.charLv} 打 Lv${cfg.enemyLv}）`,
+          row.isLingjian && ctx.zhengsu > 0 ? `  × 整肃 ${ctx.zhengsuBoost.toFixed(2)}（${ctx.zhengsu} 层，灵剑伤害每层 +10%，仪典·春之行列）` : null,
           `  × 抗性区 ${resMultVal.toFixed(4)}（敌抗 ${cfg.enemyRes * 100}%）`,
           critLine(r),
-        ].join('\n');
+        ].filter(Boolean).join('\n');
       }
       tips.push(tip);
       html += `<tr><td>${rowName}</td>` +
