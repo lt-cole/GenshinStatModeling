@@ -63,24 +63,9 @@
       </div>
       <canvas id="curve" width="760" height="320"></canvas>
     </details>
-    <details class="fold">
-      <summary>全等级属性表（Lv 1 → 90）</summary>
-      <div style="max-height: 420px; overflow-y: auto;">
-        <table id="statTable">
-          <thead><tr>
-            <th>等级</th><th>突破</th><th id="hpHead">生命上限</th><th>攻击力</th><th>防御力</th><th id="spHead">突破加成</th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </details>
   </div>
 
   <div class="col">
-    <details class="fold">
-      <summary>技能倍率表（Lv 1 → 15）</summary>
-      <div id="talents"></div>
-    </details>
     <details class="fold" open>
       <summary>伤害计算（标准公式）</summary>
       <div class="calc-box">
@@ -123,8 +108,6 @@ async function boot() {
   document.title = `${c.nameZh} · 角色数值`;
   document.getElementById('profile').innerHTML =
     `<img class="avatar" src="${c.icon}" alt="${c.nameZh}" onerror="this.replaceWith(Object.assign(document.createElement('div'), { className: 'avatar avatar-ph', textContent: (this.alt || '?').slice(0, 1), style: 'background:#4a5568' }))"><h1>${c.nameZh}</h1><span class="meta">${c.titleZh} · ${c.element} · ${c.weapon} · 实装版本 ${c.version} · 突破加成：${c.substatZh} · ${c.region || ''}</span>`;
-  document.getElementById('spHead').textContent = c.substatZh;
-  document.getElementById('hpHead').textContent = '生命上限 HP';
   const fulightWrap = document.getElementById('c_fulight_wrap');
   if (fulightWrap) fulightWrap.hidden = c.name !== 'Zibai'; // 时隙浮光输入仅兹白（月转时隙机制）需要
   // 星系输入按角色机制精确显隐——无关角色藏入口，防残留输入干扰对账
@@ -142,15 +125,7 @@ async function boot() {
   // 增幅反应仅火/水/冰元素可触发（蒸发=水火、融化=火冰）；风/岩/雷/草的直伤永不蒸发/融化，藏入口防误导
   document.getElementById('c_amplify_wrap').hidden = !['火', '水', '冰'].includes(c.element);
 
-  // 属性全表
-  const tbody = document.querySelector('#statTable tbody');
-  tbody.innerHTML = c.stats.map((s) =>
-    `<tr><td class="num">Lv ${s.lv}</td><td class="num">突破${s.asc}</td>
-     <td class="num">${s.hp.toLocaleString()}</td><td class="num">${s.atk.toFixed(1)}</td>
-     <td class="num">${s.def.toLocaleString()}</td><td class="num">${s.sp.toFixed(3)}</td></tr>`).join('');
-
   drawCurve(c.stats);
-  renderTalents(c.talents, c.substatZh);
 }
 
 // 三条归一化成长曲线（HP/ATK/DEF）+ 突破加成（独立右轴归一）
@@ -209,55 +184,6 @@ function drawCurve(stats) {
   line(sp.map((v) => (v - spMin) / (spMax - spMin || 1)), spSeries.color);
 }
 
-// 技能倍率表：labels 每行自带 {paramN:F?P?} 占位符——按占位符解析参数编号取值，
-// 不按位置对位（params 键序为字典序，param10 会排在 param2 前，位置映射必然错位）。
-// label 的 | 后缀（如"元素精通"）保留在属性名括号内，不丢弃。
-function renderTalents(talents) {
-  const box = document.getElementById('talents');
-  const LV_MAX = 15;
-  const fmt = (v, spec) => {
-    const m = spec.match(/F(\d)/);
-    const digits = m ? +m[1] : 0;
-    return spec.endsWith('P') ? (v * 100).toFixed(digits) + '%' : v.toFixed(digits);
-  };
-  for (const key of ['combat1', 'combat2', 'combat3']) {
-    const t = talents[key];
-    if (!t) continue;
-    const det = document.createElement('details');
-    det.className = 'fold';
-    const sum = document.createElement('summary');
-    sum.textContent = t.name;
-    det.appendChild(sum);
-
-    // 解析每个 label 行：占位符编号 / 属性名 / 纯文字后缀
-    const lines = (t.labels || []).map((raw) => {
-      const matches = [...raw.matchAll(/\{param(\d+)(?::(\w+))?\}/g)];
-      const parts = raw.split('|');
-      return {
-        name: parts[0],
-        suffix: parts.slice(1).join('').replace(/\{param[^}]*\}/g, '').trim(),
-        nums: matches.map((m) => +m[1]),
-        specs: matches.map((m) => m[2] || 'F0'),
-      };
-    }).filter((l) => l.nums.length > 0 && t.params['param' + l.nums[0]]);
-
-    const lvCount = Math.max(...lines.map((l) => t.params['param' + l.nums[0]].length), 1);
-    const table = document.createElement('table');
-    const head = `<thead><tr><th>属性</th>${Array.from({ length: lvCount }, (_, i) => `<th>Lv${i + 1}</th>`).join('')}</tr></thead>`;
-    const bodyRows = lines.map((l) => {
-      const nameCell = l.suffix ? `${l.name}（${l.suffix}）` : l.name;
-      const cells = Array.from({ length: LV_MAX }, (_, lv) => {
-        const arr = t.params['param' + l.nums[0]];
-        const v = arr ? arr[lv] : undefined;
-        return `<td class="num">${v === undefined ? '—' : fmt(v, l.specs[0])}</td>`;
-      });
-      return `<tr><td>${nameCell}</td>${cells.join('')}</tr>`;
-    });
-    table.innerHTML = head + `<tbody>${bodyRows.join('')}</tbody>`;
-    det.appendChild(table);
-    box.appendChild(det);
-  }
-}
 // ===== 伤害计算（标准公式）=====
 // 倍率基数（面板属性）× 技能倍率 × (1+加成) × 暴击区 × 增幅区 × 防御区 × 抗性区
 function calcRow(basePanel, multPct, cfg, amplifyMult) {
