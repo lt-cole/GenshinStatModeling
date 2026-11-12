@@ -128,10 +128,34 @@ async function boot() {
 
 // ===== 武器收益对比：面板缓存反推圣遗物贡献，同类型 3-5★ 逐把重组面板，代表输出行暴击排序 =====
 let weaponsData = null;
-function loadWeapons() {
-  fetch('data/weapons.json').then((r) => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
-    .then((j) => { weaponsData = j; drawWeaponCompare(); })
-    .catch(() => drawWeaponCompare()); // 失败也进守卫链显示原因
+const weaponsReady = fetch('data/weapons.json').then((r) => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+  .then((j) => { weaponsData = j; })
+  .catch(() => {});
+weaponsReady.then(() => drawWeaponCompare());
+
+// ===== 默认参考面板：未登录访客的基础数据源 =====
+// 有游戏实测留言的角色用实测面板（去零头，武器为实测者佩戴）；其余按典型配装合成（西风系列基准武器 + 圣遗物模板）
+const DEFAULT_PANELS = {
+  '桑多涅': { weaponId: 12502, atk: 3121, hp: 18006, def: 1044, cr: 71, cd: 187, em: 19 }, // 留言板实测（狼的末路）
+  '兹白': { weaponId: 11431, atk: 1022, hp: 18006, def: 3320, cr: 64, cd: 212, em: 120 }, // 留言板实测（息燧之笛）
+  '薇斯纳': { weaponId: 11522, atk: 2902, hp: 18565, def: 733, cr: 64, cd: 244, em: 21 }, // 留言板实测（蝶变，86级面板）
+};
+const DEFAULT_WEAPON = { '单手剑': '11401', '双手剑': '12401', '长柄武器': '13407', '法器': '14401', '弓': '15401' }; // 西风系列：副词条充能不进伤害面板
+function makeDefaultPanel(cur) {
+  if (!weaponsData) return null;
+  const stat = cur.stats[cur.stats.length - 1];
+  const m = DEFAULT_PANELS[cur.nameZh];
+  if (m) return { ...m, source: '实测玩家参考面板（留言板游戏实测，去零头）' };
+  const wid = DEFAULT_WEAPON[cur.weapon];
+  if (!wid || !weaponsData.items[wid]) return null;
+  const wa = weaponsData.items[wid].a;
+  return {
+    weaponId: wid,
+    atk: Math.round((stat.atk + wa) * 1.466), // 圣遗物模板：攻击% 46.6%
+    hp: Math.round(stat.hp), def: Math.round(stat.def),
+    cr: 36, cd: 112, em: 0, // 圣遗物模板：双暴 31.1/62.2（约 1:2）、精通 0
+    source: '典型配装合成面板（西风系列武器 + 圣遗物模板）',
+  };
 }
 
 // 突破副词条（substatZh）→ 反推属性映射（精通 sp 是点数、暴击率/暴伤 sp×100 是百分数）
@@ -144,9 +168,13 @@ function drawWeaponCompare() {
   if (!current) return;
   if (!weaponsData) { fail('武器数据加载失败，请刷新重试'); return; }
   const cache = (() => { try { return JSON.parse(localStorage.getItem('genshin_hoyo_panels') || 'null'); } catch { return null; } })();
-  const p = cache && cache.chars && cache.chars[window.GS_PAGE_NAME];
-  if (!p) { fail('未检测到米游社面板缓存——在首页登录并拉取面板后，本图自动显示'); return; }
-  if (p.level !== 90) { fail('面板角色等级非 90，暂不支持武器对比'); return; }
+  let p = cache && cache.chars && cache.chars[window.GS_PAGE_NAME];
+  let usingDefault = false;
+  if (!p) { // 未登录或缓存无当前角色：默认参考面板（实测去零头/典型配装合成）
+    p = makeDefaultPanel(current);
+    if (!p) { fail('默认参考面板生成失败（武器库加载中？请刷新重试）'); return; }
+    usingDefault = true;
+  } else if (p.level !== 90) { fail('面板角色等级非 90，暂不支持武器对比'); return; }
   // 当前武器解析：weaponId（Enka 数字）优先，weapon 中文名兜底；解析不到不猜
   let curId = null;
   if (p.weaponId && weaponsData.items[p.weaponId]) curId = String(p.weaponId);
@@ -243,7 +271,8 @@ function drawWeaponCompare() {
   const notDrawn = bars.length - top.length;
   document.getElementById('weaponNote').textContent =
     `代表行：${repRow.rowName}（暴击值）· 被动按常驻/激活口径 · 反推面板：攻 ${Math.round(evalPanel(curW).atk)} / 暴 ${evalPanel(curW).cr}% / 伤 ${evalPanel(curW).cd}% / 精 ${Math.round(evalPanel(curW).em)}` +
-    (notDrawn > 0 ? ` · 其余 ${notDrawn} 把未绘出` : '');
+    (notDrawn > 0 ? ` · 其余 ${notDrawn} 把未绘出` : '') +
+    (usingDefault ? ` · 面板来源：${p.source}（登录拉取你的面板后自动切换）` : '');
 }
 
 // ===== 伤害计算（标准公式）=====
@@ -619,12 +648,28 @@ document.addEventListener('click', (e) => {
   unlockTip();
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') unlockTip(); });
-loadWeapons(); // 武器库并行拉取，加载完成后触发武器收益图
+// 武器库并行拉取（weaponsReady.then 触发武器收益图，见 boot 链路）
+// 默认参考面板填充（未登录访客）：实测去零头/典型配装合成值填入右列输入
+function fillDefaultPanel(cur) {
+  const dp = makeDefaultPanel(cur);
+  if (!dp) return '';
+  const setv = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
+  setv('c_atk', dp.atk); setv('c_hp', dp.hp); setv('c_def', dp.def);
+  setv('c_cr', dp.cr); setv('c_cd', dp.cd); setv('c_em', dp.em);
+  return dp.source;
+}
 boot().then(() => {
   calcAll();
   const t = hoyoFillPanel(); // 米游社缓存优先于上次手填输入（在 restoreCalcInputs 之后执行，体现"直接调用"）
   if (t) hoyoStatus('已自动填入米游社面板（' + t + '，登录入口在主页）');
-  drawWeaponCompare(); // 面板缓存填充完成后出图（按缓存反推，不随面板输入变化）
+  weaponsReady.then(() => {
+    if (!t) { // 未登录：默认参考面板（实测去零头/典型配装合成）填入右列
+      const s = fillDefaultPanel(current);
+      if (s) hoyoStatus('当前为' + s + '——在首页登录拉取你的面板后自动切换');
+      calcAll();
+    }
+    drawWeaponCompare(); // 面板来源就绪后出图（按面板来源反推，不随面板输入变化）
+  });
 });
 </script>
 <script src="assets/feedback.js?v=20261111"></script>

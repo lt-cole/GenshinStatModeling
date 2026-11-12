@@ -16,11 +16,17 @@ const vis = (id) => pg.$eval('#' + id, (e) => !e.hidden);
 const hint = () => pg.evaluate(() => ({ h: !document.getElementById('weaponHint').hidden, t: document.getElementById('weaponHint').textContent }));
 const bars = () => pg.evaluate(() => window.GS_WEAPON_BARS || []);
 
-// ===== 1. 无缓存：引导提示、画布隐藏 =====
+// ===== 1. 无缓存：默认参考面板出图（实测去零头/典型配装合成）+ 右列填充 =====
 await pg.goto(BASE + '/detail.html?name=HuTao', { waitUntil: 'networkidle' });
-await pg.waitForTimeout(800);
-let h = await hint();
-check('无缓存显示引导提示', h.h && h.t.includes('登录'), h.t);
+await pg.waitForTimeout(1000);
+const bars0 = await pg.evaluate(() => window.GS_WEAPON_BARS || []);
+const cur0 = bars0.find((b) => b.isCur);
+const note0 = await pg.evaluate(() => document.getElementById('weaponNote').textContent);
+check('未登录合成面板出图', bars0.length > 10, String(bars0.length));
+check('基准武器=西风长枪', cur0 && cur0.name === '西风长枪', cur0 && cur0.name);
+check('图注含合成来源', note0.includes('典型配装合成'), note0.slice(-80));
+const atkInput = await pg.$eval('#c_atk', (e) => e.value);
+check('右列填合成面板攻击（565+46.6% 模板）', +atkInput === 984, atkInput);
 
 // ===== 2. 胡桃 + 长柄 5★（Enka 形态 weaponId）：出图、排序、round-trip =====
 const pole5 = Object.entries(weapons.items).find(([id, x]) => x.t === '长柄武器' && x.r === 5);
@@ -96,7 +102,7 @@ await pg.evaluate(() => {
   localStorage.setItem('genshin_hoyo_panels', JSON.stringify(c));
 });
 await pg.reload({ waitUntil: 'networkidle' }); await pg.waitForTimeout(700);
-h = await hint();
+let h = await hint();
 check('level≠90 提示', h.h && h.t.includes('等级非 90'), h.t);
 // 5b. weaponId 不存在
 await pg.evaluate(() => {
@@ -113,6 +119,29 @@ await pg.reload({ waitUntil: 'networkidle' }); await pg.waitForTimeout(700);
 h = await hint();
 check('weapons.json 加载失败提示', h.h && h.t.includes('加载失败'), h.t);
 await pg.unroute('**/data/weapons.json');
+
+await pg.screenshot({ path: 'F:/GenshinStatModeling/tmp/t_weapon_compare.png' });
+
+// ===== 6. 实测角色默认面板：桑多涅（狼末 + 留言板实测去零头），无缓存走默认 =====
+await pg.goto(BASE + '/detail.html?name=Sandrone', { waitUntil: 'networkidle' }); await pg.waitForTimeout(600);
+await pg.evaluate(() => {
+  localStorage.removeItem('genshin_hoyo_panels'); // 移除缓存走默认面板
+});
+await pg.reload({ waitUntil: 'networkidle' }); await pg.waitForTimeout(1000);
+const bars2 = await pg.evaluate(() => window.GS_WEAPON_BARS || []);
+const cur2 = bars2.find((b) => b.isCur);
+check('桑多涅实测面板出图（基准=狼的末路）', bars2.length > 10 && cur2 && cur2.name === '狼的末路', JSON.stringify(cur2));
+const atk2 = await pg.$eval('#c_atk', (e) => e.value);
+check('右列填实测攻击 3121（留言板实测去零头）', +atk2 === 3121, atk2);
+const status = await pg.evaluate(() => document.getElementById('hoyo_status').textContent);
+check('hoyo_status 提示实测来源', status.includes('实测'), status.slice(0, 50));
+const star = await pg.evaluate(() => {
+  for (const tr of document.querySelectorAll('#calcOut tbody tr'))
+    if (tr.cells[0].textContent.includes('冷凝射线星超导'))
+      return { white: parseFloat(tr.cells[1].textContent.replace(/,/g, '')), crit: parseFloat(tr.cells[2].textContent.replace(/,/g, '')) };
+  return null;
+});
+check('默认面板星超导白字 ≈ 6759（留言板闭合 9814 ÷ 记录系数 1.45）', star && Math.abs(star.white - 9814 / 1.45) < 60, JSON.stringify(star));
 
 await pg.screenshot({ path: 'F:/GenshinStatModeling/tmp/t_weapon_compare.png' });
 await b.close();
