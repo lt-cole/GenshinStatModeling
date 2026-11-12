@@ -18,7 +18,7 @@
 cd genshin/server && go vet ./... && go test ./... && go build -o ../bin/genshin-server.exe .
 ```
 
-验收套件（`tmp/` 下，打公网域名真实拓扑）：`feedback_test.mjs` 留言板 / `hoyo_btn_test.mjs` 登录按钮状态机 / `hoyo_uat_test.mjs` 用户视角走查 / `calc_star_verify.mjs` 伤害公式回归 / `tip_lock_test.mjs` 浮窗锁定。
+验收套件（`tmp/` 下，打公网域名真实拓扑）：`feedback_test.mjs` 留言板 / `hoyo_btn_test.mjs` 登录按钮状态机 / `hoyo_uat_test.mjs` 用户视角走查 / `calc_star_verify.mjs` 伤害公式回归 / `tip_lock_test.mjs` 浮窗锁定 / `weapon_compare_test.mjs` 武器收益图。武器库更新：`node tmp/weapon_fetch.mjs`（yatta.moe 抓取 → 曲线锚点校准 → `site/data/weapons.json`，被动 fx 见 `weapon_fx_overrides.json` 人工核对表）。
 
 ## 公式口径
 

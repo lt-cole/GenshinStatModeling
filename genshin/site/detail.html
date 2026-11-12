@@ -53,15 +53,13 @@
 
 <div class="layout">
   <div class="col">
-    <details class="fold">
-      <summary>属性成长曲线（Lv 1 → 90，归一化对比）</summary>
-      <div class="legend">
-        <span><i style="background:#e8b04b"></i>生命上限 HP</span>
-        <span><i style="background:#5cc8a8"></i>攻击力 ATK</span>
-        <span><i style="background:#7ca0d8"></i>防御力 DEF</span>
-        <span><i style="background:#d87ca0"></i>突破加成（右轴）</span>
+    <details class="fold" open>
+      <summary>武器收益对比（Lv90 · 含武器被动）</summary>
+      <p class="meta" id="weaponHint" hidden></p>
+      <div id="weaponChartWrap">
+        <canvas id="weaponChart" width="760" height="320"></canvas>
+        <p class="meta" id="weaponNote" style="font-size:12px; color:#b8c4d8; line-height:1.6; margin:6px 2px 0;"></p>
       </div>
-      <canvas id="curve" width="760" height="320"></canvas>
     </details>
   </div>
 
@@ -125,63 +123,127 @@ async function boot() {
   // 增幅反应仅火/水/冰元素可触发（蒸发=水火、融化=火冰）；风/岩/雷/草的直伤永不蒸发/融化，藏入口防误导
   document.getElementById('c_amplify_wrap').hidden = !['火', '水', '冰'].includes(c.element);
 
-  drawCurve(c.stats);
+  drawWeaponCompare();
 }
 
-// 三条归一化成长曲线（HP/ATK/DEF）+ 突破加成（独立右轴归一）
-function drawCurve(stats) {
-  const cv = document.getElementById('curve');
+// ===== 武器收益对比：面板缓存反推圣遗物贡献，同类型 3-5★ 逐把重组面板，代表输出行暴击排序 =====
+let weaponsData = null;
+function loadWeapons() {
+  fetch('data/weapons.json').then((r) => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+    .then((j) => { weaponsData = j; drawWeaponCompare(); })
+    .catch(() => drawWeaponCompare()); // 失败也进守卫链显示原因
+}
+
+// 突破副词条（substatZh）→ 反推属性映射（精通 sp 是点数、暴击率/暴伤 sp×100 是百分数）
+const ASC_MAP = { '攻击力': 'atk%', '生命值': 'hp%', '防御力': 'def%', '暴击率': 'cr', '暴击伤害': 'cd', '元素精通': 'em' };
+
+function drawWeaponCompare() {
+  const hint = document.getElementById('weaponHint');
+  const wrap = document.getElementById('weaponChartWrap');
+  const fail = (msg) => { hint.textContent = msg; hint.hidden = false; wrap.style.display = 'none'; };
+  if (!current) return;
+  if (!weaponsData) { fail('武器数据加载失败，请刷新重试'); return; }
+  const cache = (() => { try { return JSON.parse(localStorage.getItem('genshin_hoyo_panels') || 'null'); } catch { return null; } })();
+  const p = cache && cache.chars && cache.chars[window.GS_PAGE_NAME];
+  if (!p) { fail('未检测到米游社面板缓存——在首页登录并拉取面板后，本图自动显示'); return; }
+  if (p.level !== 90) { fail('面板角色等级非 90，暂不支持武器对比'); return; }
+  // 当前武器解析：weaponId（Enka 数字）优先，weapon 中文名兜底；解析不到不猜
+  let curId = null;
+  if (p.weaponId && weaponsData.items[p.weaponId]) curId = String(p.weaponId);
+  else if (p.weapon) {
+    const hit = Object.entries(weaponsData.items).find(([, x]) => x.n === p.weapon);
+    if (hit) curId = hit[0];
+  }
+  if (!curId) { fail('面板缓存的武器信息无法解析（当前武器：' + (p.weapon || p.weaponId || '未知') + '）'); return; }
+  const curW = weaponsData.items[curId];
+  // 缓存面板值是字符串（服务端 strconv 输出），统一数字化 P 防字符串拼接错值
+  const P = { atk: parseFloat(p.atk), hp: parseFloat(p.hp), def: parseFloat(p.def), cr: parseFloat(p.cr), cd: parseFloat(p.cd), em: parseFloat(p.em) };
+  const cand = Object.entries(weaponsData.items).filter(([, x]) => x.t === curW.t && x.r >= 3);
+  if (!cand.length) { fail('同类型武器候选为空'); return; }
+
+  const ctx = buildCfg();
+  const cfg = ctx.cfg;
+  const stat = current.stats[current.stats.length - 1]; // 90 级白字
+  const substatZh = current.substatZh || '';
+  const ascKey = ASC_MAP[substatZh];
+  const ascPct = ascKey === 'atk%' || ascKey === 'hp%' || ascKey === 'def%' ? stat.sp : 0;
+  const ascCr = substatZh === '暴击率' ? stat.sp * 100 : 0;
+  const ascCd = substatZh === '暴击伤害' ? stat.sp * 100 : 0;
+  const ascEm = substatZh === '元素精通' ? stat.sp : 0;
+  // 武器 fx 求和（atk%/cr/cd/em 进面板重组；bonus/star 进 cfg 乘区；er/phys 不进伤害乘区）
+  const fxSum = (x, k) => { let v = 0; (x.fx || []).forEach((f) => { if (f.k === k) v += f.v; }); return v; };
+  const curSub = curW.s || [];
+  const curSubKey = curSub[0], curSubV = curSub[1] || 0;
+  // 反推圣遗物合流贡献 C（当前武器自身代入必得原面板——round-trip 恒等）
+  const baseWhite = stat.atk + curW.a;
+  const C_atk = P.atk - baseWhite * (1 + ascPct + (curSubKey === 'atk%' ? curSubV / 100 : 0) + fxSum(curW, 'atk%') / 100);
+  const C_cr = P.cr - 5 - ascCr - (curSubKey === 'cr' ? curSubV : 0) - fxSum(curW, 'cr');
+  const C_cd = P.cd - 50 - ascCd - (curSubKey === 'cd' ? curSubV : 0) - fxSum(curW, 'cd');
+  const C_em = P.em - ascEm - (curSubKey === 'em' ? curSubV : 0) - fxSum(curW, 'em');
+
+  const rows = buildRows(current, cfg.tlv);
+  if (!rows.length) { fail('当前角色无可计算伤害行'); return; }
+  // 代表输出行：原面板（缓存）下暴击最大的行——换武器只重算该行，保证比较同一行
+  const cons = (window.hoyoPanelForPage || {}).constellation || 0;
+  const evalCtx = { ...ctx, cons };
+  // 缓存面板值是字符串（服务端 strconv 输出），必须数字化——字符串参与加法会拼接成错值
+  const panel0 = { ...P };
+  let repRow = null, repVal = -1;
+  for (const row of rows) {
+    const r = evalRow(row, current, panel0, cfg, evalCtx);
+    if (r.crit > repVal) { repVal = r.crit; repRow = row; }
+  }
+  // 逐武器重组面板 + 被动注入 + 代表行暴击
+  const evalPanel = (x) => {
+    const a90 = stat.atk + x.a;
+    const atkPct = (x.s && x.s[0] === 'atk%' ? x.s[1] / 100 : 0) + fxSum(x, 'atk%') / 100 + ascPct;
+    return {
+      atk: a90 * (1 + atkPct) + C_atk, hp: P.hp, def: P.def,
+      cr: Math.min(100, Math.max(0, 5 + ascCr + (x.s && x.s[0] === 'cr' ? x.s[1] : 0) + fxSum(x, 'cr') + C_cr)),
+      cd: Math.max(0, 50 + ascCd + (x.s && x.s[0] === 'cd' ? x.s[1] : 0) + fxSum(x, 'cd') + C_cd),
+      em: Math.max(0, ascEm + (x.s && x.s[0] === 'em' ? x.s[1] : 0) + fxSum(x, 'em') + C_em),
+    };
+  };
+  const bars = cand.map(([id, x]) => {
+    const panel1 = evalPanel(x);
+    const wCfg = { ...cfg, dmgBonus: cfg.dmgBonus + fxSum(x, 'bonus'), starBonus: cfg.starBonus + fxSum(x, 'star') / 100 };
+    const r = evalRow(repRow, current, panel1, wCfg, evalCtx);
+    return { id, name: x.n, rank: x.r, crit: Math.round(r.crit), isCur: id === curId, hasFx: !!x.fx };
+  }).sort((a, b) => b.crit - a.crit || b.id - a.id);
+  window.GS_WEAPON_BARS = bars;
+
+  // 绘制：横向条形 top12 + 当前武器强制保留
+  const wrapNow = document.getElementById('weaponChartWrap');
+  hint.hidden = true;
+  wrapNow.style.display = '';
+  const cv = document.getElementById('weaponChart');
   const dpr = devicePixelRatio || 1;
   const W = 760, H = 320;
   cv.width = W * dpr; cv.height = H * dpr;
-  const ctx = cv.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const padL = 40, padR = 40, padT = 16, padB = 26;
-  const w = W - padL - padR, h = H - padT - padB;
-
-  ctx.font = '11px sans-serif';
-  // 网格与坐标
-  ctx.strokeStyle = '#2c3850';
-  for (let i = 0; i <= 5; i++) {
-    const x = padL + (w * i) / 5;
-    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + h); ctx.stroke();
-    ctx.fillStyle = '#5a6a80';
-    ctx.fillText('Lv' + Math.round((90 * i) / 5), x - 10, H - 8);
-  }
-  for (let i = 0; i <= 4; i++) {
-    const y = padT + (h * i) / 4;
-    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + w, y); ctx.stroke();
-    ctx.fillStyle = '#5a6a80';
-    ctx.fillText(Math.round(100 - (25 * i)) + '%', 6, y + 4);
-  }
-
-  const series = [
-    { key: 'hp', color: '#e8b04b' },
-    { key: 'atk', color: '#5cc8a8' },
-    { key: 'def', color: '#7ca0d8' },
-  ];
-  const spSeries = { key: 'sp', color: '#d87ca0' };
-  const norm = (key) => {
-    const vals = stats.map((s) => s[key]);
-    const min = Math.min(...vals), max = Math.max(...vals);
-    return vals.map((v) => (v - min) / (max - min || 1));
-  };
-  const line = (vals, color) => {
-    ctx.strokeStyle = color; ctx.lineWidth = 2;
-    ctx.beginPath();
-    vals.forEach((v, i) => {
-      const x = padL + (w * i) / (vals.length - 1);
-      const y = padT + h - v * h;
-      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-    });
-    ctx.stroke();
-  };
-
-  for (const s of series) line(norm(s.key), s.color);
-  // 突破加成为阶梯（右轴归一）
-  const sp = stats.map((s) => s.sp);
-  const spMin = Math.min(...sp), spMax = Math.max(...sp);
-  line(sp.map((v) => (v - spMin) / (spMax - spMin || 1)), spSeries.color);
+  cv.style.height = H + 'px';
+  const c2 = cv.getContext('2d');
+  c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c2.clearRect(0, 0, W, H);
+  const top = bars.slice(0, 12);
+  const cur = bars.find((b) => b.isCur);
+  if (cur && !top.includes(cur)) top.push(cur);
+  const maxV = Math.max(...top.map((b) => b.crit));
+  const padL = 116, padR = 78, rowH = (H - 26) / top.length;
+  c2.font = '11px sans-serif';
+  top.forEach((b, i) => {
+    const y = 16 + i * rowH + rowH * 0.15;
+    const h = rowH * 0.7;
+    const w = Math.max(2, (b.crit / maxV) * (W - padL - padR));
+    c2.fillStyle = b.isCur ? '#d3bc8e' : '#5cc8a8';
+    c2.fillRect(padL, y, w, h);
+    c2.fillStyle = b.isCur ? '#d3bc8e' : '#d8dee9';
+    c2.fillText(b.name.slice(0, 9), 6, y + h - 2);
+    c2.fillText(b.crit.toLocaleString(), padL + w + 4, y + h - 2);
+  });
+  const notDrawn = bars.length - top.length;
+  document.getElementById('weaponNote').textContent =
+    `代表行：${repRow.rowName}（暴击值）· 被动按常驻/激活口径 · 反推面板：攻 ${Math.round(evalPanel(curW).atk)} / 暴 ${evalPanel(curW).cr}% / 伤 ${evalPanel(curW).cd}% / 精 ${Math.round(evalPanel(curW).em)}` +
+    (notDrawn > 0 ? ` · 其余 ${notDrawn} 把未绘出` : '');
 }
 
 // ===== 伤害计算（标准公式）=====
@@ -444,11 +506,16 @@ function restoreCalcInputs() {
 // 输入联动（实时重算）
 function bindCalcInputs() {
   restoreCalcInputs(); // 首算前恢复上次输入
-  ['c_charlv','c_enelev','c_res','c_cr','c_cd','c_bonus','c_em','c_atk','c_hp','c_def','c_tlv','c_records','c_starbonus','c_fulight','c_zhengsu'].forEach((id) => {
+  // 战斗参数（敌人/天赋/反应/星系状态）同时联动武器收益图
+  ['c_charlv','c_enelev','c_res','c_bonus','c_tlv','c_records','c_starbonus','c_fulight','c_zhengsu'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', () => { calcAll(); drawWeaponCompare(); });
+  });
+  // 面板四维与暴击/精通仅联动伤害计算表——武器收益图固定按米游社缓存反推（图注已说明），防"手改面板后图与表不一致"
+  ['c_cr','c_cd','c_em','c_atk','c_hp','c_def'].forEach((id) => {
     document.getElementById(id).addEventListener('input', calcAll);
   });
-  document.getElementById('c_scaling').addEventListener('change', calcAll);
-  document.getElementById('c_amplify').addEventListener('change', calcAll);
+  document.getElementById('c_scaling').addEventListener('change', () => { calcAll(); drawWeaponCompare(); });
+  document.getElementById('c_amplify').addEventListener('change', () => { calcAll(); drawWeaponCompare(); });
   const grid = document.querySelector('.calc-grid'); // 事件委托统一存档，覆盖输入框与下拉框
   grid.addEventListener('input', saveCalcInputs);
   grid.addEventListener('change', saveCalcInputs);
@@ -552,10 +619,12 @@ document.addEventListener('click', (e) => {
   unlockTip();
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') unlockTip(); });
+loadWeapons(); // 武器库并行拉取，加载完成后触发武器收益图
 boot().then(() => {
   calcAll();
   const t = hoyoFillPanel(); // 米游社缓存优先于上次手填输入（在 restoreCalcInputs 之后执行，体现"直接调用"）
   if (t) hoyoStatus('已自动填入米游社面板（' + t + '，登录入口在主页）');
+  drawWeaponCompare(); // 面板缓存填充完成后出图（按缓存反推，不随面板输入变化）
 });
 </script>
 <script src="assets/feedback.js?v=20261111"></script>
