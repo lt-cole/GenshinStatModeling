@@ -1,0 +1,80 @@
+{
+ "冷刃": {
+  "curve": "ATTACK_101",
+  "base90": 401,
+  "sub90": 35.2,
+  "subType": "攻击力%"
+ },
+ "飞天御剑": {
+  "curve": "ATTACK_104",
+  "base90": 354,
+  "sub90": 52.1,
+  "subType": "充能%"
+ },
+ "笛剑": {
+  "curve": "ATTACK_201",
+  "base90": 510,
+  "sub90": 41.3,
+  "subType": "攻击力%"
+ },
+ "暗巷闪光": {
+  "curve": "ATTACK_203",
+  "base90": 620,
+  "sub90": 55,
+  "subType": "精通"
+ },
+ "祭礼剑": {
+  "curve": "ATTACK_204",
+  "base90": 454,
+  "sub90": 61.3,
+  "subType": "充能%"
+ },
+ "天空之刃": {
+  "curve": "ATTACK_301",
+  "base90": 608,
+  "sub90": 55.1,
+  "subType": "充能%"
+ },
+ "黎明神剑": {
+  "curve": "CRITICAL_101",
+  "base90": 401,
+  "sub90": 46.9,
+  "subType": "暴击伤害%"
+ },
+ "黑岩长剑": {
+  "curve": "CRITICAL_201",
+  "base90": 565,
+  "sub90": 36.8,
+  "subType": "暴击伤害%"
+ },
+ "雾切之回光": {
+  "curve": "CRITICAL_301",
+  "base90": 674,
+  "sub90": 44.1,
+  "subType": "暴击伤害%"
+ },
+ "旅行剑": {
+  "curve": "ATTACK_102",
+  "base90": 448,
+  "sub90": 29.3,
+  "subType": "防御力"
+ },
+ "试作斩岩": {
+  "curve": "ATTACK_202",
+  "base90": 565,
+  "sub90": 34.5,
+  "subType": "物理伤害加成"
+ },
+ "山王长牙": {
+  "curve": "ATTACK_303",
+  "base90": 741,
+  "sub90": 11,
+  "subType": "暴击率"
+ },
+ "磐岩结绿": {
+  "curve": "ATTACK_304",
+  "base90": 542,
+  "sub90": 44.1,
+  "subType": "暴击率"
+ }
+}

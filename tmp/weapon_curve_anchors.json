@@ -1,0 +1,26 @@
+{
+  "_说明": "武器 90 级数值锚点：每条成长曲线至少一把已知 90 级值的武器，管线据此反推乘数并互检。数值出处：wiki.biligame.com/ys/武器名 页面内嵌等级表（2026-11-12 实抓）；蝶变/狼末经用户游戏内面板验证。",
+  "_用法": "base：curveId → {w:锚点武器, v:90级白值}。sub：curveId → {w:锚点武器, propType:副词条枚举, v:90级副词条值, unit:'%'|'点'}。百分比类 v 按百分数口径（49.6 表示 49.6%），精通 v 按点数口径。",
+  "base": {
+    "GROW_CURVE_ATTACK_101": { "w": "降临之剑", "v": 440, "src": "wiki.biligame.com（4★，曲线同时被 3★ 冷刃等使用）" },
+    "GROW_CURVE_ATTACK_102": { "w": "旅行剑", "v": 448, "src": "wiki.biligame.com" },
+    "GROW_CURVE_ATTACK_104": { "w": "飞天御剑", "v": 354, "src": "wiki.biligame.com" },
+    "GROW_CURVE_ATTACK_201": { "w": "笛剑", "v": 510, "src": "wiki.biligame.com" },
+    "GROW_CURVE_ATTACK_202": { "w": "试作斩岩", "v": 565, "src": "wiki.biligame.com" },
+    "GROW_CURVE_ATTACK_203": { "w": "暗巷闪光", "v": 620, "src": "wiki.biligame.com" },
+    "GROW_CURVE_ATTACK_204": { "w": "祭礼剑", "v": 454, "src": "wiki.biligame.com" },
+    "GROW_CURVE_ATTACK_301": { "w": "天空之刃", "v": 608, "src": "wiki.biligame.com" },
+    "GROW_CURVE_ATTACK_302": { "w": "蝶变", "v": 674, "src": "用户验证（武器面板 674/爆伤44.1%）" },
+    "GROW_CURVE_ATTACK_303": { "w": "山王长牙", "v": 741, "src": "wiki.biligame.com" },
+    "GROW_CURVE_ATTACK_304": { "w": "磐岩结绿", "v": 542, "src": "wiki.biligame.com" }
+  },
+  "sub": {
+    "GROW_CURVE_CRITICAL_101": { "w": "降临之剑", "propType": "FIGHT_PROP_ATTACK_PERCENT", "v": 35.2, "unit": "%", "src": "wiki.biligame.com（4★，曲线同时被 3★ 黎明神剑等使用）" },
+    "GROW_CURVE_CRITICAL_201": { "w": "黑岩长剑", "propType": "FIGHT_PROP_CRITICAL_HURT", "v": 36.8, "unit": "%", "src": "wiki.biligame.com（交叉锚：笛剑 攻击%41.3 同曲线）" },
+    "GROW_CURVE_CRITICAL_301": { "w": "雾切之回光", "propType": "FIGHT_PROP_CRITICAL_HURT", "v": 44.1, "unit": "%", "src": "wiki.biligame.com（交叉锚：蝶变 爆伤44.1% 用户验证）" }
+  },
+  "extra": {
+    "GROW_CURVE_ATTACK_301": { "w": "狼的末路", "v": 608, "src": "用户验证（曲线归属由管线断言确认：608/45.9364=13.2357 与天空之刃同曲线）" },
+    "GROW_CURVE_CRITICAL_301": { "w": "狼的末路", "propType": "FIGHT_PROP_ATTACK_PERCENT", "v": 49.6, "unit": "%", "src": "用户验证" }
+  }
+}

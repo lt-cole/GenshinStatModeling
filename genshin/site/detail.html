@@ -223,54 +223,116 @@ function calcStarRow(basePanel, multPct, cfg, coeff, emEff) {
 }
 const fmtN = (v) => v >= 10000 ? Math.round(v).toLocaleString() : v.toFixed(1);
 
-// 伤害计算折叠区：输入变化实时重算
-function calcAll() {
-  const box = document.getElementById('calcOut');
-  if (!current) return;
+// ===== 输入快照：从伤害计算输入区收集 cfg 与派生量（calcAll 与武器收益图共用）=====
+function buildCfg() {
   const g = (id) => parseFloat(document.getElementById(id).value) || 0;
   const cfg = {
     charLv: g('c_charlv'), enemyLv: g('c_enelev'), enemyRes: g('c_res') / 100,
     critRate: g('c_cr'), critDmg: g('c_cd'), dmgBonus: g('c_bonus'), starBonus: g('c_starbonus') / 100,
     em: g('c_em'), scaling: document.getElementById('c_scaling').value,
     tlv: Math.min(15, Math.max(1, Math.round(g('c_tlv')))),
+    atk: g('c_atk'), hp: g('c_hp'), def: g('c_def'),
   };
-  // 增幅系数：无增幅 = 1（乘法恒等）；有增幅时叠精通加成（蒸发/融化 2.78×元素精通÷(元素精通+1400)）
+  // 增幅系数：无增幅 = 1（乘法恒等）；有增幅时叠精通加成（蒸发/融化 2.78×元素精通÷(元素精通+1400)），
+  // 精通增幅基于当前 em 计算（武器收益图传重组面板 em 时自然联动）
   const amplifyMult = parseFloat(document.getElementById('c_amplify').value) || 1;
-  const amplBonus = amplifyMult > 1 ? 1 + (2.78 * cfg.em) / (cfg.em + 1400) : 1;
-  const amplTotal = amplifyMult * amplBonus;
-  const panel = { atk: g('c_atk'), hp: g('c_hp'), def: g('c_def') };
-  const scalingPanel = { atk: panel.atk, hp: panel.hp, def: panel.def }[cfg.scaling] || panel.atk;
   // 星系反应系数：极星辉域记录次数 0~12（0 次=1.00、1 次=1.45、每多一次 +0.05、12 次封顶 2.00）
   const records = Math.min(12, Math.max(0, Math.round(g('c_records'))));
   const starCoeff = records === 0 ? 1 : Math.min(1.45 + 0.05 * (records - 1), 2);
   // 薇斯纳整肃（仪典·春之行列）：拥有整肃时召唤的灵剑造成 100%+层数×10% 的伤害，至多 6 层；
   // 施放战技或退场时清空——打桩循环满层时按实际层数填
   const zhengsu = Math.min(6, Math.max(0, Math.round(g('c_zhengsu'))));
-  const zhengsuBoost = 1 + 0.1 * zhengsu;
-  // 桑多涅星系行用的实际精通 = 面板精通 + 固有天赋「淑女的行事准则」（米游社面板不含该天赋加成）
-  const emStar = current.name === 'Sandrone' ? cfg.em + SANDRONE_EM_BONUS(panel.atk) : cfg.em;
+  const fulight = Math.max(70, Math.round(parseFloat((document.getElementById('c_fulight') || {}).value) || 70));
+  return { cfg, amplifyMult, records, starCoeff, zhengsu, zhengsuBoost: 1 + 0.1 * zhengsu, fulight };
+}
 
-  box.innerHTML = '';
-  let charHasStar = false;
-  let charHasLunar = false; // 含月曜直伤行（灵驹飞踏第二段等）
+// ===== 行集合：从天赋 JSON 推导伤害行（与面板输入无关；倍率按 tlv 索引）=====
+// 计算表仅保留伤害行：名称含"伤害/射击"且非增益说明（排除持续时间/冷却时间/体力消耗/元素能量/治疗量及"伤害增加/提升"类行）；
+// "虚影"为已知特例（奈芙尔幻戏虚影一/二/三段，以元素精通为基数的直伤行）
+function buildRows(cur, tlv) {
+  const rows = [];
   for (const key of ['combat1', 'combat2', 'combat3']) {
-    const t = current.talents?.[key];
+    const t = cur.talents?.[key];
     if (!t) continue;
     const lines = (t.labels || []).map((raw) => {
       const matches = [...raw.matchAll(/\{param(\d+)(?::(\w+))?\}/g)];
       const parts = raw.split('|');
       return { name: parts[0], suffix: parts.slice(1).join('').replace(/\{param[^}]*\}/g, '').trim(),
-               num: matches.length ? +matches[0][1] : 0, spec: matches.length ? matches[0][2] : 'F0' };
-    // 计算表仅保留伤害行：名称含"伤害/射击"且非增益说明（排除持续时间/冷却时间/体力消耗/元素能量/治疗量及"伤害增加/提升"类行）；
-    // "虚影"为已知特例（奈芙尔幻戏虚影一/二/三段，以元素精通为基数的直伤行）
+               num: matches.length ? +matches[0][1] : 0 };
     }).filter((l) => l.num > 0 && /伤害|射击|虚影/.test(l.name) && !/增加|提升|百分比/.test(l.name));
     const starAny = lines.some(isStarRow);
-    if (!lines.length) continue;
+    for (const l of lines) {
+      const multPct = (t.params['param' + l.num] || [])[tlv - 1];
+      if (multPct === undefined) continue;
+      rows.push({
+        key, tname: t.name, starAny,
+        name: l.name, suffix: l.suffix,
+        rowName: l.name + (l.suffix ? '（' + l.suffix + '）' : ''),
+        multPct,
+        emScaled: l.suffix.includes('精通'), suffixDef: l.suffix.includes('防御力'), suffixHp: l.suffix.includes('生命'),
+        isStar: isStarRow(l),
+        isLunar: cur.name === 'Zibai' && l.name.includes('灵驹飞踏第二段'), // 兹白灵驹飞踏第二段=月结晶技能（月曜直伤）
+        isLingjian: cur.name === 'Vesna' && key === 'combat3', // 薇斯纳大招召唤的灵剑（吃整肃加成）
+      });
+    }
+  }
+  return rows;
+}
 
+// ===== 纯计算：给定行身份与面板，产出三数值（无 DOM 依赖；武器收益图逐武器重算复用）=====
+// panel: {atk, hp, def, cr, cd, em}——render 路径=输入框值；武器图路径=按武器重组后的面板
+// ctx: buildCfg 的返回 + cons（命座数）
+function evalRow(row, cur, panel, cfg, ctx) {
+  const rc = { ...cfg, atk: panel.atk, hp: panel.hp, def: panel.def, critRate: panel.cr, critDmg: panel.cd, em: panel.em };
+  const resMult = rc.enemyRes >= 0 ? 1 - rc.enemyRes : 1 - rc.enemyRes / 2;
+  let mult = row.multPct;
+  if (row.isLunar) {
+    // 兹白灵驹飞踏第二段：月曜直伤（gensri 口径），不吃防御乘区
+    mult += 0.6; // 太阴降 60% 防御力
+    if (ctx.cons >= 2) mult += 5.5; // 二命 550% 防御力
+    let white = panel.def * mult * 1.14 * 1.62 * (1 + (6 * rc.em) / (rc.em + 2000)) * resMult;
+    if (ctx.cons >= 6) white *= 1 + 0.016 * (ctx.fulight - 70); // 六命：溢出浮光每点擢升 1.6%
+    return { white, crit: white * (1 + rc.critDmg / 100), expect: white * (1 + (rc.critRate / 100) * (rc.critDmg / 100)) };
+  }
+  if (row.isStar) {
+    // 桑多涅星系行用的实际精通 = 面板精通 + 固有天赋「淑女的行事准则」（米游社面板不含该天赋加成）
+    const emStar = cur.name === 'Sandrone' ? rc.em + SANDRONE_EM_BONUS(panel.atk) : rc.em;
+    const coeff = /星超导/.test(row.name) ? ctx.starCoeff : 1;
+    let r = calcStarRow(row.emScaled ? emStar : panel.atk, mult, rc, coeff, emStar);
+    if (row.isLingjian && ctx.zhengsu > 0) {
+      // 薇斯纳大招灵剑吃整肃加成（仪典·春之行列，独立乘区）
+      r = { white: r.white * ctx.zhengsuBoost, crit: r.crit * ctx.zhengsuBoost, expect: r.expect * ctx.zhengsuBoost };
+    }
+    return r;
+  }
+  // 标准直伤：增幅精通加成基于当前 em（武器图重组面板时自然联动）
+  const amplBonus = ctx.amplifyMult > 1 ? 1 + (2.78 * rc.em) / (rc.em + 1400) : 1;
+  const rowPanel = row.emScaled ? rc.em : row.suffixDef ? panel.def : row.suffixHp ? panel.hp
+    : ({ atk: panel.atk, hp: panel.hp, def: panel.def }[cfg.scaling] || panel.atk);
+  return calcRow(rowPanel, mult, rc, ctx.amplifyMult * amplBonus);
+}
+
+// 伤害计算折叠区：输入变化实时重算
+function calcAll() {
+  const box = document.getElementById('calcOut');
+  if (!current) return;
+  const ctx = buildCfg();
+  const cfg = ctx.cfg;
+  const cons = (window.hoyoPanelForPage || {}).constellation || 0;
+  const panel = { atk: cfg.atk, hp: cfg.hp, def: cfg.def, cr: cfg.critRate, cd: cfg.critDmg, em: cfg.em };
+  const rows = buildRows(current, cfg.tlv);
+
+  box.innerHTML = '';
+  let charHasStar = false;
+  let charHasLunar = false; // 含月曜直伤行（灵驹飞踏第二段等）
+  const groups = [...new Set(rows.map((r) => r.key))];
+  for (const key of groups) {
+    const rowGroup = rows.filter((r) => r.key === key);
+    const starAny = rowGroup[0].starAny;
     const sec = document.createElement('section');
     sec.className = 'card';
     const h3 = document.createElement('h3');
-    h3.textContent = t.name + `（天赋 Lv ${cfg.tlv}${starAny ? ' · 含星系反应伤害' : ''}）`;
+    h3.textContent = rowGroup[0].tname + `（天赋 Lv ${cfg.tlv}${starAny ? ' · 含星系反应伤害' : ''}）`;
     sec.appendChild(h3);
     const table = document.createElement('table');
     const head = '<thead><tr><th>属性</th><th>无暴击</th><th>暴击</th><th>期望</th></tr></thead>';
@@ -280,88 +342,60 @@ function calcAll() {
     const resMultVal = cfg.enemyRes >= 0 ? 1 - cfg.enemyRes : 1 - cfg.enemyRes / 2;
     const critLine = (rv) => `暴击 ${fmtN(rv.crit)} = 白字 × (1 + 爆伤 ${cfg.critDmg}%)\n期望 ${fmtN(rv.expect)} = 白字 × (1 + 暴击率 ${cfg.critRate}% × 爆伤 ${cfg.critDmg}%)`;
     const tips = [];
-    for (const l of lines) {
-      const multPct = (t.params['param' + l.num] || [])[cfg.tlv - 1];
-      if (multPct === undefined) continue;
-      // 星系反应行走星系公式；标签后缀声明倍率基数的行按后缀取面板
-      // （"元素精通"如米提亚星超导、"防御力"如兹白灵驹飞踏、"生命值上限"类），其余跟随"倍率基于"下拉。
-      // 星超导吃反应系数，星扩散恒为 1
-      const emScaled = l.suffix.includes('精通');
-      const suffixDef = l.suffix.includes('防御力');
-      const suffixHp = l.suffix.includes('生命');
-      const rowPanel = emScaled ? cfg.em : suffixDef ? panel.def : suffixHp ? panel.hp : scalingPanel;
-      const rowName = l.name + (l.suffix ? '（' + l.suffix + '）' : '');
-      const panelZh = emScaled ? '元素精通' : suffixDef ? '防御力' : suffixHp ? '生命值上限'
+    for (const row of rowGroup) {
+      const r = evalRow(row, current, panel, cfg, { ...ctx, cons });
+      if (row.isStar) charHasStar = true;
+      if (row.isLunar) charHasLunar = true;
+      const rowName = row.rowName;
+      const panelZh = row.emScaled ? '元素精通' : row.suffixDef ? '防御力' : row.suffixHp ? '生命值上限'
         : { atk: '攻击力', hp: '生命值上限', def: '防御力' }[cfg.scaling];
-      const isStar = isStarRow(l);
-      if (isStar) charHasStar = true;
       // 命座与状态规则登记（逐条模式，效果原文参考公开资料；命座数取米游社/Enka 缓存）：
-      // 兹白灵驹飞踏第二段为月结晶技能（月曜直伤，gensri 口径：防御面板×倍率段×基础提升×月乘区×月曜精通乘区×抗性，
-      // 不吃防御乘区）——太阴降（固有天赋，战技/月笼谐奏触发，4秒，实战近似常驻）：倍率加段，提升值相当于防御力的60%；
-      // 一命：每次切换月转时隙后「初次施放」灵驹飞踏时，第二段月结晶反应伤害提升220%（独立乘区 ×3.2）——
-      //   仅切换后第一次施放生效，默认不计（2026-11-12 打桩实测：C2 伤害按未触发闭合，残差 0.003%）；
-      // 二命：灵驹飞踏倍率加段 550% 防御力；
-      // 六命：灵驹飞踏消耗全部时隙浮光，超出70点部分每点使本次与3秒内月结晶反应伤害擢升1.6%（(1+擢升)乘区）。
-      // 基础提升 = 月兆祝赐·浮明若流（每100防御+0.7%，总防御口径封顶14%，高防面板即拿满）；
-      // 月乘区取 1.62（gensri 列月结晶 1.6，实测 63811 按 1.62 闭合残差 0.006%、按 1.6 差 1.26%）
-      let mult = multPct;
-      const cons = (window.hoyoPanelForPage || {}).constellation || 0;
-      let r;
+      // 兹白灵驹飞踏第二段为月结晶技能（月曜直伤，gensri 口径），不吃防御乘区——太阴降 60%/二命 550% 为倍率加段；
+      // 一命 ×3.2 仅切换月转时隙后初次施放生效，默认不计（2026-11-12 打桩实测闭合）；月乘区取 1.62（实测裁决）
       let tip;
-      if (current.name === 'Zibai' && l.name.includes('灵驹飞踏第二段')) {
-        charHasLunar = true;
-        mult += 0.6; // 太阴降 60% 防御力
-        if (cons >= 2) mult += 5.5; // 二命 550% 防御力
-        let white = panel.def * mult * 1.14 * 1.62 * (1 + (6 * cfg.em) / (cfg.em + 2000)) * resMultVal; // 月曜直伤：不吃防御乘区
+      if (row.isLunar) {
+        let mult = row.multPct + 0.6 + (cons >= 2 ? 5.5 : 0);
         let lunarNotes = '';
         if (cons >= 1) lunarNotes += `  一命 ×3.2 未计入：仅切换月转时隙后初次施放生效\n`;
-        if (cons >= 6) {
-          const fulight = Math.max(70, Math.round(parseFloat((document.getElementById('c_fulight') || {}).value) || 70));
-          const lift = 1 + 0.016 * (fulight - 70); // 六命：溢出浮光每点擢升月结晶反应伤害 1.6%
-          white *= lift;
-          lunarNotes += `  × 六命浮光 ${lift.toFixed(4)}（消耗浮光 ${fulight}，超出 70 点部分每点 +1.6%）\n`;
-        }
-        r = { white, crit: white * (1 + cfg.critDmg / 100), expect: white * (1 + (cfg.critRate / 100) * (cfg.critDmg / 100)) };
+        if (cons >= 6) lunarNotes += `  × 六命浮光 ${(1 + 0.016 * (ctx.fulight - 70)).toFixed(4)}（消耗浮光 ${ctx.fulight}，超出 70 点部分每点 +1.6%）\n`;
         tip = [
           `${rowName}（天赋 Lv ${cfg.tlv} · 月结晶直伤，不吃防御区）`,
           `无暴击 ${fmtN(r.white)} = 面板防御力 ${panel.def.toFixed(1)} × 倍率段 ${pct1(mult)}`,
-          `  倍率段 = 基础 ${pct1(multPct)} + 太阴降 60.0%（固有天赋）${cons >= 2 ? ' + 二命 550%' : ''}`,
+          `  倍率段 = 基础 ${pct1(row.multPct)} + 太阴降 60.0%（固有天赋）${cons >= 2 ? ' + 二命 550%' : ''}`,
           `  × 基础提升 1.14（「月兆祝赐·浮明若流」每 100 防御 +0.7%，封顶 14%）`,
           `  × 月乘区 1.62（月结晶）`,
           `  × 月曜精通乘区 ${(1 + (6 * cfg.em) / (cfg.em + 2000)).toFixed(4)}（精通 ${cfg.em}）`,
           `  × 抗性区 ${resMultVal.toFixed(4)}（敌抗 ${cfg.enemyRes * 100}%）`,
           lunarNotes + critLine(r),
         ].join('\n');
-      } else if (isStar) {
-        const coeff = /星超导/.test(l.name) ? starCoeff : 1;
-        r = calcStarRow(emScaled ? emStar : panel.atk, mult, cfg, coeff, emStar);
-        // 薇斯纳大招召唤的灵剑（致礼·献予女皇陛下）吃整肃加成（仪典·春之行列，独立乘区）
-        const lingjian = current.name === 'Vesna' && key === 'combat3' && zhengsu > 0;
-        if (lingjian) {
-          r = { white: r.white * zhengsuBoost, crit: r.crit * zhengsuBoost, expect: r.expect * zhengsuBoost };
-        }
+      } else if (row.isStar) {
+        const emStar = current.name === 'Sandrone' ? cfg.em + SANDRONE_EM_BONUS(panel.atk) : cfg.em;
+        const coeff = /星超导/.test(row.name) ? ctx.starCoeff : 1;
         const emBonus = emStar - cfg.em;
         const emBase = emBonus > 0
           ? `${emStar.toFixed(1)} = 米游社面板 ${cfg.em} + 固有天赋「淑女的行事准则」+${emBonus.toFixed(1)}（每 100 攻击力 +8 精通，攻击力 ${fmtN(panel.atk)} → +${(panel.atk / 100 * 8).toFixed(1)}，上限 160）`
           : String(cfg.em);
         tip = [
-          `${rowName}（天赋 Lv ${cfg.tlv} · ${/星扩散/.test(l.name) ? '星扩散直伤' : '星超导直伤'}，不吃防御与普通增伤）`,
-          `无暴击 ${fmtN(r.white)} = 面板${panelZh} ${fmtN(emScaled ? emStar : panel.atk)} × 倍率 ${pct1(mult)}`,
-          coeff > 1 ? `  × 反应系数 ${coeff.toFixed(2)}（极星辉域记录 ${records} 次）`
-            : `  × 反应系数 1.00（${/星扩散/.test(l.name) ? '星扩散恒为 1' : '极星辉域记录 0 次'}）`,
+          `${rowName}（天赋 Lv ${cfg.tlv} · ${/星扩散/.test(row.name) ? '星扩散直伤' : '星超导直伤'}，不吃防御与普通增伤）`,
+          `无暴击 ${fmtN(r.white)} = 面板${panelZh} ${fmtN(row.emScaled ? emStar : panel.atk)} × 倍率 ${pct1(row.multPct)}`,
+          coeff > 1 ? `  × 反应系数 ${coeff.toFixed(2)}（极星辉域记录 ${ctx.records} 次）`
+            : `  × 反应系数 1.00（${/星扩散/.test(row.name) ? '星扩散恒为 1' : '极星辉域记录 0 次'}）`,
           `  × 精通乘区 ${(1 + (6 * emStar) / (emStar + 2000) + cfg.starBonus).toFixed(4)}（精通 ${emBase}${cfg.starBonus ? ` + 星反应增伤 ${(cfg.starBonus * 100).toFixed(1)}%` : ''}）`,
-          lingjian ? `  × 整肃 ${zhengsuBoost.toFixed(2)}（${zhengsu} 层，灵剑伤害每层 +10%，仪典·春之行列）` : null,
+          row.isLingjian && ctx.zhengsu > 0 ? `  × 整肃 ${ctx.zhengsuBoost.toFixed(2)}（${ctx.zhengsu} 层，灵剑伤害每层 +10%，仪典·春之行列）` : null,
           `  × 抗性区 ${resMultVal.toFixed(4)}（敌抗 ${cfg.enemyRes * 100}%）`,
           critLine(r),
         ].filter(Boolean).join('\n');
       } else {
-        r = calcRow(rowPanel, mult, cfg, amplTotal);
-        const amplZh = amplifyMult > 1
-          ? `增幅区 ${amplTotal.toFixed(4)}（${document.getElementById('c_amplify').selectedOptions[0].text} × 精通增幅 ${(amplTotal / amplifyMult).toFixed(4)}）`
+        const amplBonus = ctx.amplifyMult > 1 ? 1 + (2.78 * cfg.em) / (cfg.em + 1400) : 1;
+        const amplTotal = ctx.amplifyMult * amplBonus;
+        const rowPanel = row.emScaled ? cfg.em : row.suffixDef ? panel.def : row.suffixHp ? panel.hp
+          : ({ atk: cfg.atk, hp: cfg.hp, def: cfg.def }[cfg.scaling] || cfg.atk);
+        const amplZh = ctx.amplifyMult > 1
+          ? `增幅区 ${amplTotal.toFixed(4)}（${document.getElementById('c_amplify').selectedOptions[0].text} × 精通增幅 ${amplBonus.toFixed(4)}）`
           : '增幅区 1.00（无蒸发/融化）';
         tip = [
           `${rowName}（天赋 Lv ${cfg.tlv} · 标准直伤）`,
-          `无暴击 ${fmtN(r.white)} = 面板${panelZh} ${fmtN(rowPanel)} × 倍率 ${pct1(mult)}`,
+          `无暴击 ${fmtN(r.white)} = 面板${panelZh} ${fmtN(rowPanel)} × 倍率 ${pct1(row.multPct)}`,
           `  × 增伤区 ${(1 + cfg.dmgBonus / 100).toFixed(4)}（元素伤害加成 ${cfg.dmgBonus}%）`,
           `  × ${amplZh}`,
           `  × 防御区 ${((cfg.charLv + 100) / ((cfg.charLv + 100) + (cfg.enemyLv + 100))).toFixed(4)}（Lv${cfg.charLv} 打 Lv${cfg.enemyLv}）`,
