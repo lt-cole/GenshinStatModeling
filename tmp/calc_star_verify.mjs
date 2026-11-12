@@ -17,7 +17,7 @@ const set = async (id, v) => {
   await pg.$eval('#' + id, (e, val) => { e.value = val; e.dispatchEvent(new Event('input', { bubbles: true })); }, String(v));
 };
 // 持久化上线后输入会跨导航保留，每个用例先重置回默认基准
-const DEFAULTS = { c_scaling: 'atk', c_atk: '2000', c_hp: '30000', c_def: '900', c_cr: '50', c_cd: '100', c_bonus: '46.6', c_em: '100', c_amplify: '1', c_charlv: '90', c_enelev: '90', c_res: '10', c_records: '0', c_starbonus: '0', c_tlv: '10' };
+const DEFAULTS = { c_scaling: 'atk', c_atk: '2000', c_hp: '30000', c_def: '900', c_cr: '50', c_cd: '100', c_bonus: '46.6', c_em: '100', c_amplify: '1', c_charlv: '90', c_enelev: '90', c_res: '10', c_records: '0', c_starbonus: '0', c_tlv: '10', c_zhengsu: '0' };
 const resetDefaults = async () => { for (const [id, v] of Object.entries(DEFAULTS)) await set(id, v); };
 const row = (tIdx, kw) => pg.evaluate((args) => {
   const sec = document.querySelectorAll('#calcOut section')[args.tIdx];

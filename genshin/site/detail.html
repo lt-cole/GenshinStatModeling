@@ -100,6 +100,7 @@
           <label>敌人抗性 %<input id="c_res" type="number" value="10"></label>
           <label id="c_records_wrap">极星辉域记录次数<input id="c_records" type="number" value="0" min="0" max="12"></label>
           <label id="c_starbonus_wrap">星反应增伤 %<input id="c_starbonus" type="number" value="0" step="0.1"></label>
+          <label id="c_zhengsu_wrap" hidden>整肃层数<input id="c_zhengsu" type="number" value="0" min="0" max="6"></label>
           <label id="c_fulight_wrap" hidden>时隙浮光消耗<input id="c_fulight" type="number" value="70" min="70"></label>
           <label>天赋等级<input id="c_tlv" type="number" value="10" min="1" max="15"></label>
         </div>
@@ -132,6 +133,8 @@ async function boot() {
     (c.talents?.[k]?.labels || []).some((l) => /星超导|星扩散/.test(l)));
   document.getElementById('c_records_wrap').hidden = !hasStarRow;
   document.getElementById('c_starbonus_wrap').hidden = !hasStarRow;
+  // 整肃层数仅薇斯纳（仪典·春之行列：灵剑伤害 100%+层数×10%，至多 6 层）
+  document.getElementById('c_zhengsu_wrap').hidden = c.name !== 'Vesna';
 
   // 属性全表
   const tbody = document.querySelector('#statTable tbody');
@@ -308,6 +311,10 @@ function calcAll() {
   // 星系反应系数：极星辉域记录次数 0~12（0 次=1.00、1 次=1.45、每多一次 +0.05、12 次封顶 2.00）
   const records = Math.min(12, Math.max(0, Math.round(g('c_records'))));
   const starCoeff = records === 0 ? 1 : Math.min(1.45 + 0.05 * (records - 1), 2);
+  // 薇斯纳整肃（仪典·春之行列）：拥有整肃时召唤的灵剑造成 100%+层数×10% 的伤害，至多 6 层；
+  // 施放战技或退场时清空——打桩循环满层时按实际层数填
+  const zhengsu = Math.min(6, Math.max(0, Math.round(g('c_zhengsu'))));
+  const zhengsuBoost = 1 + 0.1 * zhengsu;
   // 桑多涅星系行用的实际精通 = 面板精通 + 固有天赋「淑女的行事准则」（米游社面板不含该天赋加成）
   const emStar = current.name === 'Sandrone' ? cfg.em + SANDRONE_EM_BONUS(panel.atk) : cfg.em;
 
@@ -396,6 +403,11 @@ function calcAll() {
       } else if (isStar) {
         const coeff = /星超导/.test(l.name) ? starCoeff : 1;
         r = calcStarRow(emScaled ? emStar : panel.atk, mult, cfg, coeff, emStar);
+        // 薇斯纳大招召唤的灵剑（致礼·献予女皇陛下）吃整肃加成（仪典·春之行列，独立乘区）
+        const lingjian = current.name === 'Vesna' && key === 'combat3' && zhengsu > 0;
+        if (lingjian) {
+          r = { white: r.white * zhengsuBoost, crit: r.crit * zhengsuBoost, expect: r.expect * zhengsuBoost };
+        }
         const emBonus = emStar - cfg.em;
         const emBase = emBonus > 0
           ? `${emStar.toFixed(1)} = 米游社面板 ${cfg.em} + 固有天赋「淑女的行事准则」+${emBonus.toFixed(1)}（每 100 攻击力 +8 精通，攻击力 ${fmtN(panel.atk)} → +${(panel.atk / 100 * 8).toFixed(1)}，上限 160）`
@@ -406,9 +418,10 @@ function calcAll() {
           coeff > 1 ? `  × 反应系数 ${coeff.toFixed(2)}（极星辉域记录 ${records} 次）`
             : `  × 反应系数 1.00（${/星扩散/.test(l.name) ? '星扩散恒为 1' : '极星辉域记录 0 次'}）`,
           `  × 精通乘区 ${(1 + (6 * emStar) / (emStar + 2000) + cfg.starBonus).toFixed(4)}（精通 ${emBase}${cfg.starBonus ? ` + 星反应增伤 ${(cfg.starBonus * 100).toFixed(1)}%` : ''}）`,
+          lingjian ? `  × 整肃 ${zhengsuBoost.toFixed(2)}（${zhengsu} 层，灵剑伤害每层 +10%，仪典·春之行列）` : null,
           `  × 抗性区 ${resMultVal.toFixed(4)}（敌抗 ${cfg.enemyRes * 100}%）`,
           critLine(r),
-        ].join('\n');
+        ].filter(Boolean).join('\n');
       } else {
         r = calcRow(rowPanel, mult, cfg, amplTotal);
         const amplZh = amplifyMult > 1
@@ -465,7 +478,7 @@ function restoreCalcInputs() {
 // 输入联动（实时重算）
 function bindCalcInputs() {
   restoreCalcInputs(); // 首算前恢复上次输入
-  ['c_charlv','c_enelev','c_res','c_cr','c_cd','c_bonus','c_em','c_atk','c_hp','c_def','c_tlv','c_records','c_starbonus','c_fulight'].forEach((id) => {
+  ['c_charlv','c_enelev','c_res','c_cr','c_cd','c_bonus','c_em','c_atk','c_hp','c_def','c_tlv','c_records','c_starbonus','c_fulight','c_zhengsu'].forEach((id) => {
     document.getElementById(id).addEventListener('input', calcAll);
   });
   document.getElementById('c_scaling').addEventListener('change', calcAll);
