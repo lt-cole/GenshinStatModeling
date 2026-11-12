@@ -94,7 +94,7 @@
           <label>暴击伤害 %<input id="c_cd" type="number" value="100" step="1"></label>
           <label>元素伤害加成 %<input id="c_bonus" type="number" value="46.6" step="0.1"></label>
           <label>元素精通<input id="c_em" type="number" value="100"></label>
-          <label>增幅反应<select id="c_amplify"><option value="1">无</option><option value="1.5">蒸发 1.5×</option><option value="2">蒸发 2.0×</option><option value="1.5">融化 1.5×</option><option value="2">融化 2.0×</option></select></label>
+          <label id="c_amplify_wrap">增幅反应<select id="c_amplify"><option value="1">无</option><option value="1.5">蒸发 1.5×</option><option value="2">蒸发 2.0×</option><option value="1.5">融化 1.5×</option><option value="2">融化 2.0×</option></select></label>
           <label>角色等级<input id="c_charlv" type="number" value="90"></label>
           <label>敌人等级<input id="c_enelev" type="number" value="90"></label>
           <label>敌人抗性 %<input id="c_res" type="number" value="10"></label>
@@ -127,14 +127,20 @@ async function boot() {
   document.getElementById('hpHead').textContent = '生命上限 HP';
   const fulightWrap = document.getElementById('c_fulight_wrap');
   if (fulightWrap) fulightWrap.hidden = c.name !== 'Zibai'; // 时隙浮光输入仅兹白（月转时隙机制）需要
-  // 星系输入（记录次数/星反应增伤）仅对含星系反应行的角色显示——无关角色藏入口，
-  // 防残留输入干扰对账（曾发生：薇斯纳场景的星反应增伤36%残留到桑多涅页，星超导虚高恰好36%）
-  const hasStarRow = ['combat1', 'combat2', 'combat3'].some((k) =>
+  // 星系输入按角色机制精确显隐——无关角色藏入口，防残留输入干扰对账
+  // （曾发生：薇斯纳场景的星反应增伤36%残留到桑多涅页，星超导虚高恰好36%）
+  // 记录次数是星超导专属机制（星扩散反应系数恒为 1），仅对含星超导行的角色显示；
+  // 星反应增伤对任意星系行生效（附加精通乘区），有星系行即显示
+  const hasStarConduct = ['combat1', 'combat2', 'combat3'].some((k) =>
+    (c.talents?.[k]?.labels || []).some((l) => /星超导/.test(l)));
+  const hasStarAny = ['combat1', 'combat2', 'combat3'].some((k) =>
     (c.talents?.[k]?.labels || []).some((l) => /星超导|星扩散/.test(l)));
-  document.getElementById('c_records_wrap').hidden = !hasStarRow;
-  document.getElementById('c_starbonus_wrap').hidden = !hasStarRow;
+  document.getElementById('c_records_wrap').hidden = !hasStarConduct;
+  document.getElementById('c_starbonus_wrap').hidden = !hasStarAny;
   // 整肃层数仅薇斯纳（仪典·春之行列：灵剑伤害 100%+层数×10%，至多 6 层）
   document.getElementById('c_zhengsu_wrap').hidden = c.name !== 'Vesna';
+  // 增幅反应仅火/水/冰元素可触发（蒸发=水火、融化=火冰）；风/岩/雷/草的直伤永不蒸发/融化，藏入口防误导
+  document.getElementById('c_amplify_wrap').hidden = !['火', '水', '冰'].includes(c.element);
 
   // 属性全表
   const tbody = document.querySelector('#statTable tbody');

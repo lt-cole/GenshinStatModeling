@@ -11,8 +11,16 @@ let pass = 0, fail = 0;
 const check = (name, ok, detail = '') => { if (ok) { pass++; console.log('  ✓', name); } else { fail++; console.log('  ✗', name, detail); } };
 
 const set = async (id, v) => {
-  const tag = await pg.$eval('#' + id, (e) => e.tagName);
-  if (tag === 'SELECT') { await pg.selectOption('#' + id, v); return; }
+  // 可见性用 checkVisibility（含祖先链）：自身 computed display 非 none 但父级 display:none 时实际不可见
+  const info = await pg.$eval('#' + id, (e) => ({ tag: e.tagName, hidden: !e.checkVisibility() }));
+  if (info.tag === 'SELECT') {
+    if (info.hidden) { // 隐藏的下拉（如冰雷系页面的增幅反应）selectOption 要求可见，evaluate 直设
+      await pg.$eval('#' + id, (e, val) => { e.value = val; e.dispatchEvent(new Event('change', { bubbles: true })); }, String(v));
+      return;
+    }
+    await pg.selectOption('#' + id, v);
+    return;
+  }
   // evaluate 直设值+触发 input：星系输入等仅部分角色可见，pg.fill 对隐藏元素会失败
   await pg.$eval('#' + id, (e, val) => { e.value = val; e.dispatchEvent(new Event('input', { bubbles: true })); }, String(v));
 };
