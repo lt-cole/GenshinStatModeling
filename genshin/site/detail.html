@@ -151,6 +151,7 @@ const rowAttackType = (row) => row.name.includes('重击') ? 'charge'
   : row.name.includes('下坠') ? 'plunge'
   : row.key === 'combat2' ? 'skill' : row.key === 'combat3' ? 'burst' : 'normal';
 let weaponsData = null;
+let weaponBarRects = []; // 条形命中区域（武器图悬停/点击提示），随每次重绘更新
 const weaponsReady = fetch('data/weapons.json').then((r) => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
   .then((j) => { weaponsData = j; })
   .catch(() => {});
@@ -255,15 +256,32 @@ function drawWeaponCompare() {
       em: Math.max(0, ascEm + (x.s && x.s[0] === 'em' ? x.s[1] : 0) + fxSumArr(fxArr, 'em') + C_em),
     };
   };
+  const SUB_ZH = { 'atk%': '攻击力%', cr: '暴击率', cd: '暴击伤害', em: '元素精通', er: '充能效率', phys: '物理伤害', 'hp%': '生命值%', 'def%': '防御力%' };
+  const FX_ZH = { 'atk%': '攻击力', cr: '暴击率', cd: '暴击伤害', em: '元素精通', er: '充能效率', 'hp%': '生命值', 'def%': '防御力', 'star': '星反应增伤', 'bonus.all': '全伤害', 'bonus.normal': '普攻伤害', 'bonus.charge': '重击伤害', 'bonus.skill': '战技伤害', 'bonus.burst': '爆发伤害' };
   const bars = cand.map(([id, x]) => {
-    let bestCrit = -1;
+    let bestCrit = -1, bestPanel = null;
     for (const wf of fxWindows(x)) { // 轮转类逐窗口枚举（互斥激活），非轮转武器单窗口
       const panel1 = evalPanel(x, wf);
       const wCfg = { ...cfg, dmgBonus: cfg.dmgBonus + fxSumArr(wf, 'bonus', repType), starBonus: cfg.starBonus + fxSumArr(wf, 'star') / 100 };
       const r = evalRow(repRow, current, panel1, wCfg, evalCtx);
-      if (r.crit > bestCrit) bestCrit = r.crit;
+      if (r.crit > bestCrit) { bestCrit = r.crit; bestPanel = panel1; }
     }
-    return { id, name: x.n, rank: x.r, crit: Math.round(bestCrit), isCur: id === curId, hasFx: !!x.fx };
+    const subZh = x.s ? (x.s[0] === 'em' ? `精通 ${x.s[1]}` : `${SUB_ZH[x.s[0]] || x.s[0]} ${x.s[1]}%`) : '无副词条';
+    const fxList = (x.fx || []).map((f) => {
+      const dot = f.k.indexOf('.');
+      const base = dot < 0 ? f.k : f.k.slice(0, dot);
+      const nm = FX_ZH[base] || f.k;
+      const w = !f.w ? '（常驻）' : f.w.startsWith('lun') ? `（轮转第 ${f.w.slice(3)} 段）` : '（条件触发）';
+      return `${nm}+${f.v}%${w}`;
+    }).join('、') || '未计入（复杂被动）';
+    const tip = [
+      `${x.n}（${x.r}★ ${x.t} · 白值 ${x.a} · 副词条 ${subZh}）`,
+      `代表行：${repRow.rowName} 暴击 ${fmtN(bestCrit)}`,
+      `  面板攻击 = 白字 ${stat.atk} + 武器 ${x.a} + 圣遗物 ${Math.round(bestPanel.atk - stat.atk - x.a)} = ${fmtN(bestPanel.atk)}`,
+      `  暴击 ${bestPanel.cr}% / 爆伤 ${bestPanel.cd}% / 精通 ${Math.round(bestPanel.em)}（圣遗物反推，换武器不变）`,
+      `  被动：${fxList}`,
+    ].join('\n');
+    return { id, name: x.n, rank: x.r, crit: Math.round(bestCrit), isCur: id === curId, hasFx: !!x.fx, tip };
   }).sort((a, b) => b.crit - a.crit || b.id - a.id);
   window.GS_WEAPON_BARS = bars;
 
@@ -283,8 +301,10 @@ function drawWeaponCompare() {
   const cur = bars.find((b) => b.isCur);
   if (cur && !top.includes(cur)) top.push(cur);
   const maxV = Math.max(...top.map((b) => b.crit));
+  weaponBarRects = []; // 每次重绘重建命中区域
   const padL = 116, padR = 78, rowH = (H - 26) / top.length;
   c2.font = '11px sans-serif';
+
   top.forEach((b, i) => {
     const y = 16 + i * rowH + rowH * 0.15;
     const h = rowH * 0.7;
@@ -294,6 +314,7 @@ function drawWeaponCompare() {
     c2.fillStyle = b.isCur ? '#d3bc8e' : '#d8dee9';
     c2.fillText(b.name.slice(0, 9), 6, y + h - 2);
     c2.fillText(b.crit.toLocaleString(), padL + w + 4, y + h - 2);
+    weaponBarRects.push({ x: padL, y, w: W - padL - padR, h, tip: b.tip });
   });
   const notDrawn = bars.length - top.length;
   document.getElementById('weaponNote').textContent =
@@ -736,6 +757,28 @@ document.addEventListener('click', (e) => {
   unlockTip();
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') unlockTip(); });
+
+// 武器收益图条形：悬停显示该武器伤害来源（命中检测），点击锁定同技能表浮窗
+const wcv = document.getElementById('weaponChart');
+const hitBar = (e) => {
+  const r = wcv.getBoundingClientRect();
+  const mx = (e.clientX - r.left) * (760 / r.width), my = (e.clientY - r.top) * (320 / r.height);
+  return weaponBarRects.find((b) => mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) || null;
+};
+wcv.addEventListener('mousemove', (e) => {
+  if (tipLocked) return;
+  const hit = hitBar(e);
+  if (!hit) { tipBox.style.display = 'none'; return; }
+  tipBox.textContent = hit.tip;
+  tipBox.style.display = 'block';
+  placeTip(e);
+});
+wcv.addEventListener('mouseleave', () => { if (!tipLocked) tipBox.style.display = 'none'; });
+wcv.addEventListener('click', (e) => {
+  const hit = hitBar(e);
+  if (!hit) return;
+  lockTip(hit.tip, e);
+});
 // 武器库并行拉取（weaponsReady.then 触发武器收益图，见 boot 链路）
 // 默认参考面板填充（未登录访客）：实测去零头/典型配装合成值填入右列输入
 function fillDefaultPanel(cur) {

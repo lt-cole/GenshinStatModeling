@@ -149,6 +149,21 @@ const star = await pg.evaluate(() => {
 });
 check('默认面板星超导白字 ≈ 6759（留言板闭合 9814 ÷ 记录系数 1.45）', star && Math.abs(star.white - 9814 / 1.45) < 60, JSON.stringify(star));
 
+// ===== 7. 武器图条形悬停/点击提示：命中区域 → 浮窗显示该武器伤害来源，点击锁定复制 =====
+const box = await pg.$eval('#weaponChart', (e) => e.getBoundingClientRect());
+const wrects = await pg.evaluate(() => (weaponBarRects || []).slice(0, 2));
+check('条形命中区域已记录', wrects.length === 2 && wrects[0].tip.includes('狼的末路'), JSON.stringify(wrects.map((r) => r.tip.slice(0, 12))));
+const barBox = { x: box.x + wrects[0].x * (box.width / 760), y: box.y + wrects[0].y * (box.height / 320), w: wrects[0].w * (box.width / 760), h: wrects[0].h * (box.height / 320) };
+await pg.mouse.move(barBox.x + barBox.w / 2, barBox.y + barBox.h / 2); await pg.waitForTimeout(200);
+const tipS = await pg.evaluate(() => ({ d: document.getElementById('calcTip').style.display, t: document.getElementById('calcTip').textContent }));
+check('悬停条形显示来源浮窗', tipS.d === 'block' && tipS.t.includes('狼的末路') && tipS.t.includes('面板攻击'), tipS.t.slice(0, 40).replace(/\n/g, ' '));
+await pg.mouse.click(barBox.x + barBox.w / 2, barBox.y + barBox.h / 2); await pg.waitForTimeout(150);
+const lockS = await pg.evaluate(() => ({ pe: getComputedStyle(document.getElementById('calcTip')).pointerEvents, bar: !!document.querySelector('#calcTip button') }));
+check('点击条形锁定（可复制）', lockS.pe === 'auto' && lockS.bar, JSON.stringify(lockS));
+await pg.keyboard.press('Escape'); await pg.waitForTimeout(150);
+const escS = await pg.evaluate(() => document.getElementById('calcTip').style.display);
+check('Esc 解锁', escS === 'none', escS);
+
 await pg.screenshot({ path: 'F:/GenshinStatModeling/tmp/t_weapon_compare.png' });
 await b.close();
 console.log(`\n===== 武器收益图验收：${pass} 通过 / ${fail} 失败 =====`);
