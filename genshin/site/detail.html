@@ -240,7 +240,14 @@ function drawWeaponCompare() {
   // 缓存面板值是字符串（服务端 strconv 输出），必须数字化——字符串参与加法会拼接成错值
   const panel0 = { ...P };
   let repRow = null, repVal = -1;
-  for (const row of rows) {
+  // 代表输出行：乘区体系角色（月曜/星曜）优先从本体系行中选（月曜角色主输出=月曜行、星曜角色=星系行），
+  // 大数字直伤行（如大招多段）不应带偏代表行；无体系角色回退全行选最大
+  const sys = systemOf(current);
+  const pool = sys.lunarMult ? rows.filter((r) => r.isLunar)
+    : sys.boost && !sys.lunarMult ? rows.filter((r) => r.isStar) : rows;
+  const repExplicit = sys.repRowName ? rows.find((r) => r.name.includes(sys.repRowName)) : null;
+  const repPool = repExplicit ? [repExplicit] : (pool.length ? pool : rows);
+  for (const row of repPool) {
     const r = evalRow(row, current, panel0, cfg, evalCtx);
     if (r.crit > repVal) { repVal = r.crit; repRow = row; }
   }
@@ -356,7 +363,7 @@ const MULT_SYSTEM = {
   Columbina: { lunarMult: 1.62, boost: { stat: 'hp', per100: 0.02, cap: 7, talent: '月兆祝赐·借汝月光' } }, // 每 1000 生命 +0.2%
   Lauma:     { lunarMult: 1.0, boost: { stat: 'em', per100: 1.75, cap: 14, talent: '月兆祝赐·千籁恩宠' } }, // 每点精通 +0.0175%
   Nefer:     { lunarMult: 1.0, boost: { stat: 'em', per100: 1.75, cap: 14, talent: '月兆祝赐·廊下暮影' } },
-  Sandrone:  { boost: { stat: 'atk', per100: 0.7, cap: 14, talent: '星耀祝礼·唯理为光' }, emTalent: { per100: 8, cap: 160, talent: '淑女的行事准则' } },
+  Sandrone:  { boost: { stat: 'atk', per100: 0.7, cap: 14, talent: '星耀祝礼·唯理为光' }, emTalent: { per100: 8, cap: 160, talent: '淑女的行事准则' }, repRowName: '重击冷凝射线星超导' }, // 主输出：重击循环触发星超导（实测 #28 口径）
   Odette:    { boost: { stat: 'atk', per100: 0.7, cap: 14, talent: '星耀祝礼·银晓之舞' } },
   Vesna:     { boost: { stat: 'atk', per100: 0.7, cap: 14, talent: '星耀祝礼·散华序饰' } },
   Mitya:     { boost: { stat: 'em', per100: 2.8, cap: 14, talent: '星耀祝礼·极密协议' } }, // 每点精通 +0.028%
