@@ -223,6 +223,11 @@ r = await row(0, '一段');
 check(`胡桃 白字(抗10%) ≈ ${hutaoWhite.toFixed(1)}（修复前为 ×0.999 的错误值）`, r && Math.abs(r.white - hutaoWhite) < 1, r ? JSON.stringify(r) : '无行');
 meta = await metaText();
 check('胡桃 公式说明为标准口径', meta.includes('公式：伤害 = 属性×倍率') && !meta.includes('星超导'), meta.slice(0, 60));
+// 悬停提示挂载断言：全部行必须有 data-tip（曾因乘区重构残留空分支，星系行 tip 未赋值悬停失效）
+check('悬停提示全行挂载（data-tip 数 = 行数）', await pg.evaluate(() => {
+  const trs = [...document.querySelectorAll('#calcOut tbody tr')];
+  return trs.length > 0 && trs.every((tr) => tr.cells[1] && tr.cells[1].dataset.tip);
+}), '悬停提示挂载缺失');
 
 // ===== 5. 持久化：改动后刷新页面，输入与首算应自动恢复 =====
 await set('c_atk', 3000); await pg.waitForTimeout(200);
