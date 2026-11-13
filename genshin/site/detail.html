@@ -777,6 +777,7 @@ wcv.addEventListener('mouseleave', () => { if (!tipLocked) tipBox.style.display 
 wcv.addEventListener('click', (e) => {
   const hit = hitBar(e);
   if (!hit) return;
+  e.stopPropagation(); // 不冒泡到 document（否则 canvas 点击被当作空白点击而解锁）
   lockTip(hit.tip, e);
 });
 // 武器库并行拉取（weaponsReady.then 触发武器收益图，见 boot 链路）

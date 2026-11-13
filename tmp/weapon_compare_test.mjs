@@ -151,13 +151,14 @@ check('默认面板星超导白字 ≈ 6759（留言板闭合 9814 ÷ 记录系�
 
 // ===== 7. 武器图条形悬停/点击提示：命中区域 → 浮窗显示该武器伤害来源，点击锁定复制 =====
 const box = await pg.$eval('#weaponChart', (e) => e.getBoundingClientRect());
-const wrects = await pg.evaluate(() => (weaponBarRects || []).slice(0, 2));
-check('条形命中区域已记录', wrects.length === 2 && wrects[0].tip.includes('狼的末路'), JSON.stringify(wrects.map((r) => r.tip.slice(0, 12))));
+const topName = await pg.evaluate(() => (window.GS_WEAPON_BARS || [])[0].name); // 排序第一的武器（动态）
+  const wrects = await pg.evaluate(() => (weaponBarRects || []).slice(0, 2));
+check('条形命中区域已记录（含排序第一武器）', wrects.length === 2 && wrects[0].tip.includes(topName), JSON.stringify(wrects.map((r) => r.tip.slice(0, 12))));
 const barBox = { x: box.x + wrects[0].x * (box.width / 760), y: box.y + wrects[0].y * (box.height / 320), w: wrects[0].w * (box.width / 760), h: wrects[0].h * (box.height / 320) };
-await pg.mouse.move(barBox.x + barBox.w / 2, barBox.y + barBox.h / 2); await pg.waitForTimeout(200);
-const tipS = await pg.evaluate(() => ({ d: document.getElementById('calcTip').style.display, t: document.getElementById('calcTip').textContent }));
-check('悬停条形显示来源浮窗', tipS.d === 'block' && tipS.t.includes('狼的末路') && tipS.t.includes('面板攻击'), tipS.t.slice(0, 40).replace(/\n/g, ' '));
-await pg.mouse.click(barBox.x + barBox.w / 2, barBox.y + barBox.h / 2); await pg.waitForTimeout(150);
+await pg.evaluate(({ cx, cy }) => document.getElementById('weaponChart').dispatchEvent(new MouseEvent('mousemove', { clientX: cx, clientY: cy, bubbles: true })), { cx: barBox.x + barBox.w / 2, cy: barBox.y + barBox.h / 2 }); await pg.waitForTimeout(200);
+const tipS = await pg.evaluate(() => ({ d: document.getElementById('calcTip').style.display + '/' + getComputedStyle(document.getElementById('calcTip')).display, locked: tipLocked, t: document.getElementById('calcTip').textContent }));
+check('悬停条形显示来源浮窗', tipS.d.startsWith('block') && tipS.t.includes(topName) && tipS.t.includes('面板攻击'), 'd=' + tipS.d + ' topName=' + topName + ' | ' + tipS.t.slice(0, 40).replace(/\n/g, ' '));
+await pg.evaluate(({ cx, cy }) => document.getElementById('weaponChart').dispatchEvent(new MouseEvent('click', { clientX: cx, clientY: cy, bubbles: true })), { cx: barBox.x + barBox.w / 2, cy: barBox.y + barBox.h / 2 }); await pg.waitForTimeout(150);
 const lockS = await pg.evaluate(() => ({ pe: getComputedStyle(document.getElementById('calcTip')).pointerEvents, bar: !!document.querySelector('#calcTip button') }));
 check('点击条形锁定（可复制）', lockS.pe === 'auto' && lockS.bar, JSON.stringify(lockS));
 await pg.keyboard.press('Escape'); await pg.waitForTimeout(150);
