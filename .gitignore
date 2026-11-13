@@ -10,3 +10,7 @@ tmp/*.png
 # 日志
 logs/
 *.log
+
+# npm 安装残留
+node_modules/
+tmp/_*.json
