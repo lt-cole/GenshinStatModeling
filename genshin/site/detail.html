@@ -564,7 +564,6 @@ function calcAll() {
         ].filter(Boolean).join(`
 `);
       } else if (row.isStar) {
-      } else if (row.isStar) {
         const emStar = cfg.em + emBonusOf(current, panel); // 米游社面板不含属性转精通天赋，按配置表补入
         const emTalent = systemOf(current).emTalent;
         const coeff = /星超导/.test(row.name) ? ctx.starCoeff : 1;
