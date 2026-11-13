@@ -322,9 +322,38 @@ function calcRow(basePanel, multPct, cfg, amplifyMult) {
 // · 不吃普通元素增伤、防御、蒸发/融化增幅；可以暴击。
 // · 固有天赋"星耀祝礼"的 14% 基础提升不计入（gensri 公式含此项，但两次游戏内实测都不支持：
 //   桑多涅 9785、薇斯纳 81428 均在不乘 1.14 时闭合，故以实测为准）。
-// · 桑多涅固有天赋"淑女的行事准则"（每 100 点攻击力 +8 点精通，2000 攻击力拿满 160，总面板攻击力口径）
-//   提升的是精通面板但米游社面板不含（实测面板 em 18.6 → 实际战斗 178.6），星系行计算时补上。
-const SANDRONE_EM_BONUS = (atk) => Math.min((atk / 100) * 8, 160);
+// · 属性转精通类固有天赋（桑多涅「淑女的行事准则」、菲林斯「幽焰的呢喃」）：米游社面板不含，见 MULT_SYSTEM.emTalent 统一补入。
+// ===== 月曜/星曜乘区体系配置表（gensri 口径；新角色在此加一行配置即可，不逐角色打补丁）=====
+// lunarMult：月乘区（月感电 3.0 / 月结晶 1.62 / 月绽放 1.0）；boost：月兆/星耀祝赐基础提升（per100 = 每 100 点属性提升 %，封顶 cap%）
+// emTalent：属性转精通类固有天赋（每 100 点属性 + per100 点精通，封顶 cap 点）——米游社面板不含，计算时补入
+// manzhui：月兆·满辉状态加成（菲林斯满辉下月感电伤害 +20%，按激活口径）；concerto：莉奈娅 C2 月笼协奏（#87/#88 实测反推）
+const MULT_SYSTEM = {
+  Zibai:     { lunarMult: 1.62, boost: { stat: 'def', per100: 0.7, cap: 14, talent: '月兆祝赐·浮明若流' } },
+  Linnea:    { lunarMult: 1.62, boost: { stat: 'def', per100: 0.7, cap: 14, talent: '月兆祝赐·栖地考察' }, concerto: 1.767 },
+  Flins:     { lunarMult: 3.0, boost: { stat: 'atk', per100: 0.7, cap: 14, talent: '月兆祝赐·旧世潜藏' }, emTalent: { per100: 8, cap: 160, talent: '幽焰的呢喃' }, manzhui: 20 },
+  Ineffa:    { lunarMult: 3.0, boost: { stat: 'atk', per100: 0.7, cap: 14, talent: '月兆祝赐·象拟中继' } },
+  Columbina: { lunarMult: 1.62, boost: { stat: 'hp', per100: 0.02, cap: 7, talent: '月兆祝赐·借汝月光' } }, // 每 1000 生命 +0.2%
+  Lauma:     { lunarMult: 1.0, boost: { stat: 'em', per100: 1.75, cap: 14, talent: '月兆祝赐·千籁恩宠' } }, // 每点精通 +0.0175%
+  Nefer:     { lunarMult: 1.0, boost: { stat: 'em', per100: 1.75, cap: 14, talent: '月兆祝赐·廊下暮影' } },
+  Sandrone:  { boost: { stat: 'atk', per100: 0.7, cap: 14, talent: '星耀祝礼·唯理为光' }, emTalent: { per100: 8, cap: 160, talent: '淑女的行事准则' } },
+  Odette:    { boost: { stat: 'atk', per100: 0.7, cap: 14, talent: '星耀祝礼·银晓之舞' } },
+  Vesna:     { boost: { stat: 'atk', per100: 0.7, cap: 14, talent: '星耀祝礼·散华序饰' } },
+  Mitya:     { boost: { stat: 'em', per100: 2.8, cap: 14, talent: '星耀祝礼·极密协议' } }, // 每点精通 +0.028%
+};
+const systemOf = (cur) => MULT_SYSTEM[cur.name] || {};
+// 属性转精通补入值（桑多涅/菲林斯：米游社面板不含该天赋加成）
+const emBonusOf = (cur, panel) => {
+  const t = systemOf(cur).emTalent;
+  if (!t) return 0;
+  return Math.min((panel.atk / 100) * t.per100, t.cap);
+};
+// 月兆/星耀祝赐基础提升乘区（总面板属性口径，封顶 cap%）
+const boostMultOf = (cur, panel) => {
+  const b = systemOf(cur).boost;
+  if (!b) return 1;
+  const statV = b.stat === 'def' ? panel.def : b.stat === 'atk' ? panel.atk : b.stat === 'hp' ? panel.hp : panel.em;
+  return 1 + Math.min((statV / 100) * b.per100, b.cap) / 100;
+};
 // 星系反应伤害行的判定（入表前已过滤为纯伤害行，无需再排增益说明）
 const isStarRow = (l) => /星超导|星扩散/.test(l.name);
 // emEff：实际精通（桑多涅为面板精通+天赋「淑女的行事准则」加成，其余角色=面板精通）
@@ -389,7 +418,10 @@ function buildRows(cur, tlv) {
         multPct,
         emScaled: l.suffix.includes('精通'), suffixDef: l.suffix.includes('防御力'), suffixHp: l.suffix.includes('生命'),
         isStar: isStarRow(l),
-        isLunar: (cur.name === 'Zibai' && l.name.includes('灵驹飞踏第二段')) || (cur.name === 'Linnea' && key === 'combat2'), // 月结晶技能（月曜直伤）：兹白灵驹飞踏第二段、莉奈娅露米战技
+        // 行分类：月曜角色（MULT_SYSTEM.lunarMult）的"月感电/月结晶/月绽放"行 + 显式登记行 → 月曜直伤公式
+        isLunar: (systemOf(cur).lunarMult && /月感电|月结晶|月绽放/.test(l.name))
+          || (cur.name === 'Zibai' && l.name.includes('灵驹飞踏第二段'))
+          || (cur.name === 'Linnea' && key === 'combat2'), // 莉奈娅露米战技（行名不含月关键词，按 combat2 显式登记）
         isZibaiLunar: cur.name === 'Zibai', // 兹白专属加段（太阴降/二命）与六命浮光
         isLinneaLunar: cur.name === 'Linnea', // 莉奈娅：C2 月笼协奏乘区（实测反推）
         isLingjian: cur.name === 'Vesna' && key === 'combat3', // 薇斯纳大招召唤的灵剑（吃整肃加成）
@@ -407,21 +439,25 @@ function evalRow(row, cur, panel, cfg, ctx) {
   const resMult = rc.enemyRes >= 0 ? 1 - rc.enemyRes : 1 - rc.enemyRes / 2;
   let mult = row.multPct;
   if (row.isLunar) {
-    // 月曜直伤（gensri 口径），不吃防御乘区：防御面板×倍率段×基础提升(防御口径封顶14%)×月乘区1.62×月曜精通乘区×抗性
+    // 月曜直伤（gensri 口径），不吃防御乘区：面板属性×倍率段×基础提升(月兆祝赐口径)×月乘区(按月曜类型)×月曜精通乘区×抗性×(1+满辉)
+    const sys = systemOf(cur);
     if (cur.name === 'Zibai') {
       mult += 0.6; // 太阴降 60% 防御力（兹白固有天赋）
       if (ctx.cons >= 2) mult += 5.5; // 二命 550% 防御力
     }
-    let white = panel.def * mult * 1.14 * 1.62 * (1 + (6 * rc.em) / (rc.em + 2000)) * resMult;
+    const attrV = sys.boost ? panel[sys.boost.stat] : panel.def; // 倍率基数属性 = 基础提升口径属性（兹白/莉奈娅防御、菲林斯攻击）
+    const emEff = rc.em + emBonusOf(cur, panel); // 属性转精通天赋（幽焰的呢喃等）米游社面板不含，补入
+    let white = attrV * mult * boostMultOf(cur, panel) * sys.lunarMult * (1 + (6 * emEff) / (emEff + 2000)) * resMult;
     if (cur.name === 'Zibai' && ctx.cons >= 6) white *= 1 + 0.016 * (ctx.fulight - 70); // 六命：溢出浮光每点擢升 1.6%
-    if (cur.name === 'Linnea') white *= 1.767; // 莉奈娅 C2 月笼协奏乘区（满辉下月结晶立即触发月笼协奏；#87/#88 实测反推，待 gensri 确认精确机制）
+    if (sys.manzhui) white *= 1 + sys.manzhui / 100; // 月兆·满辉激活口径（菲林斯月感电伤害 +20%）
+    if (sys.concerto) white *= sys.concerto; // 莉奈娅 C2 月笼协奏（#87/#88 实测反推，待 gensri 确认精确机制）
     let critDmg = rc.critDmg;
     if (cur.name === 'Linnea' && ctx.cons >= 2 && row.name.includes('百万吨重锤')) critDmg += 150; // C2：露米的百万吨重锤额外提高 150% 暴击伤害
     return { white, crit: white * (1 + critDmg / 100), expect: white * (1 + (rc.critRate / 100) * (critDmg / 100)) };
   }
   if (row.isStar) {
     // 桑多涅星系行用的实际精通 = 面板精通 + 固有天赋「淑女的行事准则」（米游社面板不含该天赋加成）
-    const emStar = cur.name === 'Sandrone' ? rc.em + SANDRONE_EM_BONUS(panel.atk) : rc.em;
+    const emStar = rc.em + emBonusOf(cur, panel);
     const coeff = /星超导/.test(row.name) ? ctx.starCoeff : 1;
     let r = calcStarRow(row.emScaled ? emStar : panel.atk, mult, rc, coeff, emStar);
     if (row.isLingjian && ctx.zhengsu > 0) {
@@ -484,29 +520,36 @@ function calcAll() {
       // 一命 ×3.2 仅切换月转时隙后初次施放生效，默认不计（2026-11-12 打桩实测闭合）；月乘区取 1.62（实测裁决）
       let tip;
       if (row.isLunar) {
-        const isZb = current.name === 'Zibai';
+        const sys = systemOf(current);
+        const isZb = current.name === `Zibai`;
         let mult = row.multPct + (isZb ? 0.6 + (cons >= 2 ? 5.5 : 0) : 0); // 兹白：太阴降 60% + 二命 550%
-        let lunarNotes = '';
-        if (isZb && cons >= 1) lunarNotes += `  一命 ×3.2 未计入：仅切换月转时隙后初次施放生效\n`;
-        if (isZb && cons >= 6) lunarNotes += `  × 六命浮光 ${(1 + 0.016 * (ctx.fulight - 70)).toFixed(4)}（消耗浮光 ${ctx.fulight}，超出 70 点部分每点 +1.6%）\n`;
+        let lunarNotes = ``;
+        if (isZb && cons >= 1) lunarNotes += `  一命 ×3.2 未计入：仅切换月转时隙后初次施放生效
+`;
+        if (isZb && cons >= 6) lunarNotes += `  × 六命浮光 ${(1 + 0.016 * (ctx.fulight - 70)).toFixed(4)}（消耗浮光 ${ctx.fulight}，超出 70 点部分每点 +1.6%）
+`;
+        const lunarTypeZh = sys.lunarMult >= 3 ? `月感电` : sys.lunarMult >= 1.6 ? `月结晶` : `月绽放`;
         tip = [
-          `${rowName}（天赋 Lv ${cfg.tlv} · 月结晶直伤，不吃防御区）`,
-          `无暴击 ${fmtN(r.white)} = 面板防御力 ${panel.def.toFixed(1)} × 倍率段 ${pct1(mult)}`,
-          isZb ? `  倍率段 = 基础 ${pct1(row.multPct)} + 太阴降 60.0%（固有天赋）${cons >= 2 ? ' + 二命 550%' : ''}`
-            : `  倍率 ${pct1(row.multPct)}（露米重锤）`,
-          `  × 基础提升 1.14（「月兆祝赐」每 100 防御 +0.7%，封顶 14%）`,
-          `  × 月乘区 1.62（月结晶）`,
-          `  × 月曜精通乘区 ${(1 + (6 * cfg.em) / (cfg.em + 2000)).toFixed(4)}（精通 ${cfg.em}）`,
-          row.isLinneaLunar ? `  × 月笼协奏 1.767（C2 满辉下月结晶立即触发月笼协奏；#87/#88 实测反推，待 gensri 确认）` : null,
+          `${rowName}（天赋 Lv ${cfg.tlv} · 月曜直伤（${lunarTypeZh}），不吃防御区）`,
+          `无暴击 ${fmtN(r.white)} = 面板${isZb ? `防御力` : `面板属性`} ${fmtN(panel[sys.boost.stat])} × 倍率段 ${pct1(mult)}`,
+          isZb ? `  倍率段 = 基础 ${pct1(row.multPct)} + 太阴降 60.0%（固有天赋）${cons >= 2 ? ` + 二命 550%` : ``}` : `  倍率 ${pct1(row.multPct)}（露米重锤）`,
+          `  × 基础提升 ${boostMultOf(current, panel).toFixed(4)}（「${sys.boost.talent}」每 100 ${sys.boost.stat === `def` ? `防御力` : sys.boost.stat === `atk` ? `攻击力` : sys.boost.stat === `hp` ? `生命值上限` : `元素精通`} +${sys.boost.per100}%，封顶 ${sys.boost.cap}%）`,
+          `  × 月乘区 ${sys.lunarMult.toFixed(2)}（${lunarTypeZh}）`,
+          `  × 月曜精通乘区 ${(1 + (6 * (cfg.em + emBonusOf(current, panel))) / ((cfg.em + emBonusOf(current, panel)) + 2000)).toFixed(4)}（精通 ${cfg.em + emBonusOf(current, panel)}${emBonusOf(current, panel) > 0 ? `，含属性转精通天赋` : ``}）`,
+          sys.manzhui ? `  × 满辉 ${(1 + sys.manzhui / 100).toFixed(2)}（月兆·满辉，月感电伤害 +${sys.manzhui}%）` : null,
+          sys.concerto ? `  × 月笼协奏 ${sys.concerto}（C2 满辉下月结晶立即触发月笼协奏；#87/#88 实测反推，待 gensri 确认）` : null,
           `  × 抗性区 ${resMultVal.toFixed(4)}（敌抗 ${cfg.enemyRes * 100}%）`,
           lunarNotes + critLine(r),
-        ].filter(Boolean).join('\n');
+        ].filter(Boolean).join(`
+`);
       } else if (row.isStar) {
-        const emStar = current.name === 'Sandrone' ? cfg.em + SANDRONE_EM_BONUS(panel.atk) : cfg.em;
+      } else if (row.isStar) {
+        const emStar = cfg.em + emBonusOf(current, panel); // 米游社面板不含属性转精通天赋，按配置表补入
+        const emTalent = systemOf(current).emTalent;
         const coeff = /星超导/.test(row.name) ? ctx.starCoeff : 1;
         const emBonus = emStar - cfg.em;
         const emBase = emBonus > 0
-          ? `${emStar.toFixed(1)} = 米游社面板 ${cfg.em} + 固有天赋「淑女的行事准则」+${emBonus.toFixed(1)}（每 100 攻击力 +8 精通，攻击力 ${fmtN(panel.atk)} → +${(panel.atk / 100 * 8).toFixed(1)}，上限 160）`
+          ? `${emStar.toFixed(1)} = 米游社面板 ${cfg.em} + 固有天赋「${(emTalent || {}).talent || '属性转精通'}」+${emBonus.toFixed(1)}（每 100 攻击力 +8 精通，攻击力 ${fmtN(panel.atk)} → +${(panel.atk / 100 * 8).toFixed(1)}，上限 160）`
           : String(cfg.em);
         tip = [
           `${rowName}（天赋 Lv ${cfg.tlv} · ${/星扩散/.test(row.name) ? '星扩散直伤' : '星超导直伤'}，不吃防御与普通增伤）`,
